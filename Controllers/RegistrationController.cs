@@ -112,7 +112,7 @@ namespace TrainingCenter_Api.Controllers
                 }
 
                 // Always preserve the registration number
-                registration.RegistraionNo = existingRegistration.RegistraionNo;
+                registration.RegistrationNo = existingRegistration.RegistrationNo;
 
 
                 // Get base directory path
@@ -274,7 +274,7 @@ namespace TrainingCenter_Api.Controllers
                 await _registrationRepository.AddAsync(registration);
 
                 // Generate registration number
-                registration.RegistraionNo = $"Reg-{registration.RegistrationId:D5}";
+                registration.RegistrationNo = $"Reg-{registration.RegistrationId:D5}";
 
                 // Update the registration with the generated number
                 await _registrationRepository.UpdateAsync(registration);

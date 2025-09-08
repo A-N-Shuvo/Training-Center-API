@@ -57,7 +57,9 @@ namespace TrainingCenter_Api.Controllers
             return Ok(result);
         }
 
-        // ✅ GET: Single Instructor by ID with Courses & BatchPlannings
+        
+
+
         [HttpGet("GetInstructor/{id}")]
         public async Task<ActionResult<object>> GetInstructor(int id)
         {
@@ -75,9 +77,16 @@ namespace TrainingCenter_Api.Controllers
             {
                 instructor.InstructorId,
                 instructor.EmployeeId,
+                EmployeeName = instructor.Employee?.EmployeeName,
                 instructor.IsActive,
                 instructor.Remarks,
                 SelectedCourseIds = instructor.InstructorCourse_Junction_Tables.Select(ic => ic.CourseId).ToList(),
+                Courses = instructor.InstructorCourse_Junction_Tables.Select(ic => new
+                {
+                    ic.CourseId,
+                    CourseName = ic.Course?.CourseName,
+                    ic.IsPrimaryInstructor
+                }).ToList(),
                 AssignedBatchPlanningIds = instructor.BatchPlanningInstructors.Select(bpi => bpi.BatchPlanningId).ToList(),
                 AssignedBatchPlannings = instructor.BatchPlanningInstructors.Select(bpi => new
                 {

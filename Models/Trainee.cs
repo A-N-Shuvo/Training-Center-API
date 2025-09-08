@@ -22,7 +22,8 @@ namespace TrainingCenter_Api.Models
 
         public virtual ICollection<Certificate> Certificates { get; set; } = new List<Certificate>();
 
-        public virtual ICollection<TraineeAttendance>? TraineeAttendances { get; set; }
+        public virtual ICollection<TraineeAttendanceDetail>? TraineeAttendanceDetails { get; set; }
         public virtual ICollection<Assessment>? Assessments { get; set; }
+        public virtual ICollection<Recommendation>? Recommendations { get; set; }
     }
 }

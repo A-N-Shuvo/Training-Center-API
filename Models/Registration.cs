@@ -8,7 +8,7 @@ namespace TrainingCenter_Api.Models
         [Key]
         public int RegistrationId { get; set; }  
 
-        public string? RegistraionNo { get; set; }
+        public string? RegistrationNo { get; set; }
 
         public int VisitorId { get; set; }
         public virtual Visitor? Visitor { get; set; }

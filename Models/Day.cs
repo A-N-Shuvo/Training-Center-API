@@ -11,8 +11,5 @@ namespace TrainingCenter_Api.Models
 
         public bool IsActive { get; set; }
 
-
-        //public virtual ICollection<ClassSchedule>? ClassSchedules { get; set; }
-
     }
 }

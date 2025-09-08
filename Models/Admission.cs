@@ -29,5 +29,7 @@ namespace TrainingCenter_Api.Models
 
 
         public virtual ICollection<MoneyReceipt>? moneyReceipts { get; set; }
+
+        public virtual ICollection<TraineeAttendanceDetail>? TraineeAttendanceDetails { get; set; }
     }
 }

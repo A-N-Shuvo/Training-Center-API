@@ -2,66 +2,31 @@
 
 namespace TrainingCenter_Api.Models
 {
-    public enum RecommendationCategory
-    {
-        AcademicPerformance,
-        Attendance,
-        Behavior,
-        SkillCompetency,
-        OverallEvaluation,
-        Other
-    }
-
-    public enum RecommendationStatus
-    {
-        Approved,
-        Pending,
-        Rejected
-    }
+ 
     public class Recommendation
     {
         [Key]
         public int RecommendationId { get; set; }
-        [Required]
-        [Display(Name = "Batch name")]
+        public DateOnly RecommendationDate { get; set; }
 
         public int BatchId { get; set; }
         public Batch? Batch { get; set; }
 
-        [Required]
-        [Display(Name = "Instructor name")]
-
         public int InstructorId { get; set; }
         public Instructor? Instructor { get; set; }
 
-        [Required]
-
+       //=================unique or individual================
         public int TraineeId { get; set; }
         public Trainee? Trainee { get; set; }
 
-        //[Required]
-        //[Display(Name = "Admission")]
+        public int AssessmentId { get; set; } 
+        public Assessment? Assessment { get; set; }
 
-        //public int AdmissionId { get; set; }
-        //public Admission? Admission { get; set; }
-
-        [Required]
-        public RecommendationCategory Category { get; set; }
-
-        [Required]
-        [MaxLength(2000)]
-        public string RecommendationText { get; set; }
-
-        [Required]
-        [DataType(DataType.Date)]
-
-        public DateTime RecommendationDate { get; set; }
-
-        [MaxLength(50)]
-        public RecommendationStatus? Status { get; set; } // যেমন: Approved, Pending, Rejected
-
-        [Required]
-        public int InvoiceId { get; set; }
+        public int InvoiceId { get; set; } 
         public Invoice? Invoice { get; set; }
+
+        public string RecommendationText { get; set; }       
+
+        public string RecommendationStatus { get; set; } // pending,Approved,Rejected
     }
 }

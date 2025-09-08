@@ -27,7 +27,10 @@ namespace TrainingCenter_Api.Controllers
             var courses = await _dbContext.Courses
                 .Include(c => c.InstructorCourse_Junction_Tables)
                     .ThenInclude(ic => ic.Instructor)
-                        .ThenInclude(i => i.Employee)
+                    .ThenInclude(i => i.Employee)
+                    .Include(clr => clr.ClassRoomCourse_Junction_Tables)
+                .ThenInclude(cr => cr.ClassRoom)
+
                 .ToListAsync();
 
             var result = courses.Select(c => new
@@ -46,6 +49,13 @@ namespace TrainingCenter_Api.Controllers
                     ic.Instructor.Employee?.EmployeeName,
                     ic.AssignmentDate,
                     ic.IsPrimaryInstructor
+                }).ToList(),
+                ClassRoom = c.ClassRoomCourse_Junction_Tables.Select(cr => new
+                {
+                    ClassRoomId = cr.ClassRoomId,
+                    RoomName = cr.ClassRoom.RoomName,
+                    CourseName = cr.Course.CourseName,
+                    IsAvailable = cr.IsAvailable
                 }).ToList()
             });
 
@@ -60,6 +70,8 @@ namespace TrainingCenter_Api.Controllers
                 .Include(c => c.InstructorCourse_Junction_Tables)
                     .ThenInclude(ic => ic.Instructor)
                         .ThenInclude(i => i.Employee)
+                .Include(clr => clr.ClassRoomCourse_Junction_Tables)
+                .ThenInclude(cr => cr.ClassRoom)
                 .FirstOrDefaultAsync(c => c.CourseId == id);
 
             if (course == null) return NotFound();
@@ -76,11 +88,18 @@ namespace TrainingCenter_Api.Controllers
                 course.CreatedDate,
                 Instructors = course.InstructorCourse_Junction_Tables.Select(ic => new
                 {
-                    ic.InstructorId,
-                    ic.Instructor.Employee?.EmployeeName,
-                    ic.IsPrimaryInstructor,
-                    ic.AssignmentDate
-                }).ToList()
+                    InstructorId = ic.InstructorId,
+                    EmployeeName = ic.Instructor.Employee?.EmployeeName,
+                    IsPrimaryInstructor = ic.IsPrimaryInstructor,
+                    AssignmentDate = ic.AssignmentDate
+                }).ToList(),
+                   ClassRooms = course.ClassRoomCourse_Junction_Tables.Select(cr => new
+                   {
+                       ClassRoomId = cr.ClassRoomId,
+                       RoomName = cr.ClassRoom.RoomName,
+                       CourseName = cr.Course.CourseName,
+                       IsAvailable = cr.IsAvailable
+                   }).ToList()
             });
         }
 
@@ -227,31 +246,6 @@ namespace TrainingCenter_Api.Controllers
             });
         }
 
-        // ✅ Assign classrooms to a course
-        [HttpPost("AssignClassRoomsToCourse")]
-        public async Task<IActionResult> AssignClassRoomsToCourse(int courseId, [FromBody] List<int> classRoomIds)
-        {
-            var course = await _dbContext.Courses
-                .Include(c => c.ClassRoomCourse_Junction_Tables)
-                .FirstOrDefaultAsync(c => c.CourseId == courseId);
-
-            if (course == null) return NotFound();
-
-            _dbContext.ClassRoomCourse_Junction_Tables
-                .RemoveRange(course.ClassRoomCourse_Junction_Tables);
-
-            foreach (var roomId in classRoomIds)
-            {
-                _dbContext.ClassRoomCourse_Junction_Tables.Add(new ClassRoomCourse_Junction_Table
-                {
-                    CourseId = courseId,
-                    ClassRoomId = roomId,
-                    IsAvailable = true
-                });
-            }
-
-            await _dbContext.SaveChangesAsync();
-            return Ok("ClassRooms assigned to course successfully.");
-        }
+        
     }
 }

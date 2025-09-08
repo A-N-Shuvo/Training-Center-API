@@ -1,5 +1,7 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.ComponentModel.DataAnnotations;
 using TrainingCenter_Api.Data;
 using TrainingCenter_Api.Models;
 
@@ -7,7 +9,6 @@ namespace TrainingCenter_Api.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
-    [Produces("application/json")]
     public class ClassScheduleController : ControllerBase
     {
         private readonly ApplicationDbContext _context;
@@ -21,86 +22,121 @@ namespace TrainingCenter_Api.Controllers
         [HttpGet("GetSchedules")]
         public async Task<ActionResult<IEnumerable<ClassSchedule>>> GetSchedules()
         {
-            return await _context.ClassSchedules
-                .Include(cs => cs.Batch)
-                .Include(cs => cs.Day)
+            var schedules = await _context.ClassSchedules
                 .Include(cs => cs.Slot)
                 .ToListAsync();
+
+            // Populate SelectedDayIds for each schedule
+            foreach (var schedule in schedules)
+            {
+                if (!string.IsNullOrWhiteSpace(schedule.SelectedDays))
+                {
+                    var dayNames = schedule.SelectedDays
+                        .Split(',', StringSplitOptions.RemoveEmptyEntries)
+                        .Select(d => d.Trim())
+                        .ToList();
+
+                    schedule.SelectedDayIds = await _context.Days
+                        .Where(d => dayNames.Contains(d.DayName))
+                        .Select(d => d.DayId)
+                        .ToListAsync();
+                }
+            }
+
+            return schedules;
         }
 
-        // ✅ GET: Schedules by BatchId
-        [HttpGet("GetSchedulesByBatch/{batchId}")]
-        public async Task<ActionResult<IEnumerable<ClassSchedule>>> GetSchedulesByBatch(int batchId)
-        {
-            return await _context.ClassSchedules
-                .Where(cs => cs.BatchId == batchId)
-                .Include(cs => cs.Day)
-                .Include(cs => cs.Slot)
-                .ToListAsync();
-        }
 
         // ✅ GET: Single Schedule
         [HttpGet("GetSchedule/{id}")]
         public async Task<ActionResult<ClassSchedule>> GetSchedule(int id)
         {
             var schedule = await _context.ClassSchedules
-                .Include(cs => cs.Batch)
-                .Include(cs => cs.Day)
                 .Include(cs => cs.Slot)
-                .FirstOrDefaultAsync(cs => cs.ScheduleId == id);
+                .FirstOrDefaultAsync(cs => cs.ClassScheduleId == id);
 
             if (schedule == null)
                 return NotFound();
 
+            // Populate SelectedDayIds from SelectedDays string
+            if (!string.IsNullOrWhiteSpace(schedule.SelectedDays))
+            {
+                var dayNames = schedule.SelectedDays
+                    .Split(',', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(d => d.Trim())
+                    .ToList();
+
+                schedule.SelectedDayIds = await _context.Days
+                    .Where(d => dayNames.Contains(d.DayName))
+                    .Select(d => d.DayId)
+                    .ToListAsync();
+            }
+
             return schedule;
         }
 
+
         // ✅ POST: Insert Single Schedule
         [HttpPost("InsertSchedule")]
-        public async Task<ActionResult<ClassSchedule>> InsertSchedule([FromBody] ClassSchedule schedule)
+        public async Task<ActionResult<ClassSchedule>> InsertSchedule([FromBody] ClassScheduleDto scheduleDto)
         {
+            // Create new ClassSchedule from DTO
+            var schedule = new ClassSchedule
+            {
+                SlotId = scheduleDto.SlotId,
+                ScheduleDate = scheduleDto.ScheduleDate,
+                SelectedDayIds = scheduleDto.SelectedDayIds,
+                IsActive = scheduleDto.IsActive
+            };
+
+            // Convert SelectedDayIds to SelectedDays string
+            if (schedule.SelectedDayIds != null && schedule.SelectedDayIds.Any())
+            {
+                var dayNames = await _context.Days
+                    .Where(d => schedule.SelectedDayIds.Contains(d.DayId))
+                    .Select(d => d.DayName)
+                    .ToListAsync();
+
+                schedule.SelectedDays = string.Join(", ", dayNames);
+            }
+
             _context.ClassSchedules.Add(schedule);
             await _context.SaveChangesAsync();
 
-            return CreatedAtAction(nameof(GetSchedule), new { id = schedule.ScheduleId }, schedule);
+            return CreatedAtAction(nameof(GetSchedule), new { id = schedule.ClassScheduleId }, schedule);
         }
 
-        // ✅ POST: Insert Multiple Schedules (Bulk Insert)
-        [HttpPost("InsertScheduleList")]
-        public async Task<IActionResult> InsertScheduleList([FromBody] List<ClassSchedule> schedules)
-        {
-            if (schedules == null || !schedules.Any())
-                return BadRequest("No schedules to insert.");
 
-            await _context.ClassSchedules.AddRangeAsync(schedules);
-            await _context.SaveChangesAsync();
-
-            return Ok(schedules);
-        }
-
-        // ✅ PUT: Update Schedule
+        //✅ PUT: Update Schedule
         [HttpPut("UpdateSchedule/{id}")]
-        public async Task<IActionResult> UpdateSchedule(int id, [FromBody] ClassSchedule schedule)
+        public async Task<IActionResult> UpdateSchedule(int id, [FromBody] ClassScheduleDto scheduleDto)
         {
-            if (id != schedule.ScheduleId)
-                return BadRequest();
+            var existingSchedule = await _context.ClassSchedules.FindAsync(id);
+            if (existingSchedule == null)
+                return NotFound();
 
-            _context.Entry(schedule).State = EntityState.Modified;
+            existingSchedule.SlotId = scheduleDto.SlotId;
+            existingSchedule.ScheduleDate = scheduleDto.ScheduleDate;
+            existingSchedule.IsActive = scheduleDto.IsActive;
 
-            try
+            if (scheduleDto.SelectedDayIds != null && scheduleDto.SelectedDayIds.Any())
             {
-                await _context.SaveChangesAsync();
+                var dayNames = await _context.Days
+                    .Where(d => scheduleDto.SelectedDayIds.Contains(d.DayId))
+                    .Select(d => d.DayName)
+                    .ToListAsync();
+
+                existingSchedule.SelectedDays = string.Join(", ", dayNames);
             }
-            catch (DbUpdateConcurrencyException)
+            else
             {
-                if (!_context.ClassSchedules.Any(cs => cs.ScheduleId == id))
-                    return NotFound();
-                else
-                    throw;
+                existingSchedule.SelectedDays = null;
             }
 
+            await _context.SaveChangesAsync();
             return NoContent();
         }
+
 
         // ✅ DELETE: Delete Schedule
         [HttpDelete("DeleteSchedule/{id}")]
@@ -114,6 +150,21 @@ namespace TrainingCenter_Api.Controllers
             await _context.SaveChangesAsync();
 
             return NoContent();
+        }
+
+
+        // Add this to your Models folder
+        public class ClassScheduleDto
+        {
+            [Required]
+            public int SlotId { get; set; }
+
+            [Required]
+            public DateTime ScheduleDate { get; set; }
+
+            public List<int> SelectedDayIds { get; set; } = new List<int>();
+
+            public bool IsActive { get; set; }
         }
     }
 }

@@ -7,6 +7,7 @@ using System.Security.Claims;
 using System.Text;
 using TrainingCenter_Api.Data;
 using TrainingCenter_Api.Models;
+using TrainingCenter_Api.Models.DTOs;
 using TrainingCenter_Api.Models.ViewModels;
 
 namespace TrainingCenter_Api.Controllers
@@ -157,6 +158,66 @@ namespace TrainingCenter_Api.Controllers
             return Ok(new { message = "User status updated." });
         }
 
+        [HttpPost("forgot-password")]
+        public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordModel model)
+        {
+            var user = await _userManager.FindByEmailAsync(model.Email);
+            if (user == null)
+                return Ok(new { message = "If the email is registered, a reset link has been sent." });
+
+            var token = await _userManager.GeneratePasswordResetTokenAsync(user);
+
+            // For development/testing, return token in response (remove this in production!)
+            return Ok(new { message = "Reset link sent", token = token });
+        }
+
+
+        [HttpPost("reset-password")]
+        public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordModel model)
+        {
+            if (!ModelState.IsValid)
+            {
+                var errors = ModelState.Values
+                    .SelectMany(v => v.Errors)
+                    .Select(e => e.ErrorMessage)
+                    .ToList();
+
+                return BadRequest(new
+                {
+                    message = "Invalid request data",
+                    errors
+                });
+            }
+
+            // Decode the URL-encoded token
+            var decodedToken = Uri.UnescapeDataString(model.Token);
+
+            var user = await _userManager.FindByEmailAsync(model.Email);
+            if (user == null)
+            {
+                return BadRequest(new
+                {
+                    message = "Invalid email address",
+                    errors = new[] { "User not found" }
+                });
+            }
+
+            var resetResult = await _userManager.ResetPasswordAsync(user, decodedToken, model.NewPassword);
+            if (!resetResult.Succeeded)
+            {
+                return BadRequest(new
+                {
+                    message = "Password reset failed",
+                    errors = resetResult.Errors.Select(e => e.Description)
+                });
+            }
+
+            return Ok(new
+            {
+                message = "Password has been reset successfully",
+                success = true
+            });
+        }
 
 
     }

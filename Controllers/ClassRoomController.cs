@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Internal;
 using TrainingCenter_Api.DAL.Interfaces;
 using TrainingCenter_Api.Data;
 using TrainingCenter_Api.Models;
@@ -13,44 +14,157 @@ namespace TrainingCenter_Api.Controllers
 
     public class ClassRoomController : ControllerBase
     {
-        private readonly IRepository<ClassRoom> _classRoomRepository;
-        private readonly ApplicationDbContext _dbContext;
+        private readonly ApplicationDbContext _context;
 
-        public ClassRoomController(IRepository<ClassRoom> classRoomRepository, ApplicationDbContext dbContext)
+        public ClassRoomController(ApplicationDbContext context)
         {
-            _classRoomRepository = classRoomRepository;
-            _dbContext = dbContext;
+            _context = context;
         }
 
-        // GET: api/ClassRooms
-        [HttpGet("GetClassRooms")]
-        public async Task<ActionResult<IEnumerable<ClassRoom>>> GetClassRooms()
+
+        [HttpGet("GetAllClassRooms")]
+        public async Task<ActionResult<IEnumerable<object>>> GetClassRooms()
         {
-            var classRooms = await _classRoomRepository.GetAllAsync();
-            return Ok(classRooms);
+            return await _context.ClassRooms
+                .Include(c => c.ClassRoomCourse_Junction_Tables)
+                    .ThenInclude(j => j.Course)
+                .Select(c => new
+                {
+                    c.ClassRoomId,
+                    c.RoomName,
+                    c.SeatCapacity,
+                    c.Location,
+                    c.IsActive,
+                    c.HasProjector,
+                    c.HasAirConditioning,
+                    c.HasWhiteboard,
+                    c.HasInternetAccess,
+                    AssignedCourses = c.ClassRoomCourse_Junction_Tables.Select(j => new
+                    {
+                        j.CourseId,
+                        CourseName = j.Course.CourseName
+                    })
+                })
+                .ToListAsync();
         }
 
-        // GET: api/ClassRooms/5
+        // GET: api/ClassRoom/GetClassRoom/5
         [HttpGet("GetClassRoom/{id}")]
-        public async Task<ActionResult<ClassRoom>> GetClassRoom(int id)
+        public async Task<ActionResult<object>> GetClassRoom(int id)
         {
-            var classRoom = await _classRoomRepository.GetByIdAsync(id);
+            var classRoom = await _context.ClassRooms
+                .Include(c => c.ClassRoomCourse_Junction_Tables)
+                    .ThenInclude(j => j.Course)
+                .FirstOrDefaultAsync(c => c.ClassRoomId == id);
 
             if (classRoom == null)
             {
                 return NotFound();
             }
 
-            return Ok(classRoom);
+            return new
+            {
+                classRoom.ClassRoomId,
+                classRoom.RoomName,
+                classRoom.SeatCapacity,
+                classRoom.Location,
+                classRoom.HasProjector,
+                classRoom.HasAirConditioning,
+                classRoom.HasWhiteboard,
+                classRoom.HasSoundSystem,
+                classRoom.HasInternetAccess,
+                classRoom.IsActive,
+                classRoom.Remarks,
+                classRoom.AdditionalFacilities,
+                AssignedCourses = classRoom.ClassRoomCourse_Junction_Tables.Select(j => new
+                {
+                    j.CourseId,
+                    CourseName = j.Course.CourseName,
+                    j.IsAvailable
+                })
+            };
         }
 
-        // PUT: api/ClassRooms/5
-        [HttpPut, Route("UpdateClassRoom/{id}")]
-        public async Task<IActionResult> UpdateClassRoom(int id, ClassRoom classRoom)
+
+        [HttpPost("InsertClassRoom")]
+        public async Task<ActionResult<ClassRoom>> InsertClassRoom([FromBody] ClassRoom classRoom)
+        {
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            using var transaction = await _context.Database.BeginTransactionAsync();
+
+            try
+            {
+                // Create the classroom without the junction tables first
+                var newClassRoom = new ClassRoom
+                {
+                    RoomName = classRoom.RoomName,
+                    SeatCapacity = classRoom.SeatCapacity,
+                    Location = classRoom.Location,
+                    HasProjector = classRoom.HasProjector,
+                    HasAirConditioning = classRoom.HasAirConditioning,
+                    HasWhiteboard = classRoom.HasWhiteboard,
+                    HasSoundSystem = classRoom.HasSoundSystem,
+                    HasInternetAccess = classRoom.HasInternetAccess,
+                    IsActive = classRoom.IsActive,
+                    Remarks = classRoom.Remarks,
+                    AdditionalFacilities = classRoom.AdditionalFacilities
+                };
+
+                _context.ClassRooms.Add(newClassRoom);
+                await _context.SaveChangesAsync();
+
+                // Process junction table if provided
+                if (classRoom.ClassRoomCourse_Junction_Tables != null &&
+                    classRoom.ClassRoomCourse_Junction_Tables.Any())
+                {
+                    foreach (var junction in classRoom.ClassRoomCourse_Junction_Tables)
+                    {
+                        // Verify course exists
+                        if (!await _context.Courses.AnyAsync(c => c.CourseId == junction.CourseId))
+                        {
+                            await transaction.RollbackAsync();
+                            return BadRequest($"Course with ID {junction.CourseId} does not exist");
+                        }
+
+                        // Create new junction entry
+                        var newJunction = new ClassRoomCourse_Junction_Table
+                        {
+                            ClassRoomId = newClassRoom.ClassRoomId,
+                            CourseId = junction.CourseId,
+                            IsAvailable = junction.IsAvailable
+                        };
+
+                        _context.ClassRoomCourse_Junction_Tables.Add(newJunction);
+                    }
+                    await _context.SaveChangesAsync();
+                }
+
+                await transaction.CommitAsync();
+
+                // Return the created classroom with junction data
+                var result = await _context.ClassRooms
+                    .Include(c => c.ClassRoomCourse_Junction_Tables)
+                    .ThenInclude(j => j.Course)
+                    .FirstOrDefaultAsync(c => c.ClassRoomId == newClassRoom.ClassRoomId);
+
+                return CreatedAtAction(nameof(GetClassRoom), new { id = result.ClassRoomId }, result);
+            }
+            catch (Exception ex)
+            {
+                await transaction.RollbackAsync();
+                return StatusCode(500, $"Internal server error: {ex.Message}");
+            }
+        }
+        [HttpPut("UpdateClassRoom/{id}")]
+        public async Task<IActionResult> UpdateClassRoom(int id, [FromBody] ClassRoom classRoom)
         {
             if (id != classRoom.ClassRoomId)
             {
-                return BadRequest();
+                return BadRequest("Classroom ID mismatch");
             }
 
             if (!ModelState.IsValid)
@@ -58,13 +172,91 @@ namespace TrainingCenter_Api.Controllers
                 return BadRequest(ModelState);
             }
 
+            using var transaction = await _context.Database.BeginTransactionAsync();
+
             try
             {
-                await _classRoomRepository.UpdateAsync(classRoom);
+                // Update the main classroom properties
+                var existingClassRoom = await _context.ClassRooms
+                    .Include(c => c.ClassRoomCourse_Junction_Tables)
+                    .FirstOrDefaultAsync(c => c.ClassRoomId == id);
+
+                if (existingClassRoom == null)
+                {
+                    return NotFound($"Classroom with ID {id} not found");
+                }
+
+                // Update properties
+                existingClassRoom.RoomName = classRoom.RoomName;
+                existingClassRoom.SeatCapacity = classRoom.SeatCapacity;
+                existingClassRoom.Location = classRoom.Location;
+                existingClassRoom.HasProjector = classRoom.HasProjector;
+                existingClassRoom.HasAirConditioning = classRoom.HasAirConditioning;
+                existingClassRoom.HasWhiteboard = classRoom.HasWhiteboard;
+                existingClassRoom.HasSoundSystem = classRoom.HasSoundSystem;
+                existingClassRoom.HasInternetAccess = classRoom.HasInternetAccess;
+                existingClassRoom.IsActive = classRoom.IsActive;
+                existingClassRoom.Remarks = classRoom.Remarks;
+                existingClassRoom.AdditionalFacilities = classRoom.AdditionalFacilities;
+
+                // Handle junction table updates
+                if (classRoom.ClassRoomCourse_Junction_Tables != null)
+                {
+                    // Remove existing junctions not in the new list
+                    var existingJunctions = existingClassRoom.ClassRoomCourse_Junction_Tables.ToList();
+                    var newJunctionCourseIds = classRoom.ClassRoomCourse_Junction_Tables
+                        .Select(j => j.CourseId)
+                        .ToList();
+
+                    foreach (var existingJunction in existingJunctions)
+                    {
+                        if (!newJunctionCourseIds.Contains(existingJunction.CourseId))
+                        {
+                            _context.ClassRoomCourse_Junction_Tables.Remove(existingJunction);
+                        }
+                    }
+
+                    // Add or update junctions
+                    foreach (var junction in classRoom.ClassRoomCourse_Junction_Tables)
+                    {
+                        var existingJunction = existingClassRoom.ClassRoomCourse_Junction_Tables
+                            .FirstOrDefault(j => j.CourseId == junction.CourseId);
+
+                        if (existingJunction == null)
+                        {
+                            // Verify course exists
+                            if (!await _context.Courses.AnyAsync(c => c.CourseId == junction.CourseId))
+                            {
+                                await transaction.RollbackAsync();
+                                return BadRequest($"Course with ID {junction.CourseId} does not exist");
+                            }
+
+                            // Add new junction
+                            var newJunction = new ClassRoomCourse_Junction_Table
+                            {
+                                ClassRoomId = id,
+                                CourseId = junction.CourseId,
+                                IsAvailable = junction.IsAvailable
+                            };
+                            _context.ClassRoomCourse_Junction_Tables.Add(newJunction);
+                        }
+                        else
+                        {
+                            // Update existing junction
+                            existingJunction.IsAvailable = junction.IsAvailable;
+                        }
+                    }
+                }
+
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+
+                return NoContent();
             }
-            catch
+            catch (DbUpdateConcurrencyException)
             {
-                if (!await _classRoomRepository.ExistsAsync(id))
+                await transaction.RollbackAsync();
+                if (!ClassRoomExists(id))
                 {
                     return NotFound();
                 }
@@ -73,102 +265,58 @@ namespace TrainingCenter_Api.Controllers
                     throw;
                 }
             }
-
-            return NoContent();
-        }
-
-        // POST: api/ClassRooms
-        [HttpPost("InsertClassRoom")]
-        public async Task<ActionResult<ClassRoom>> PostClassRoom(ClassRoom classRoom)
-        {
-            if (!ModelState.IsValid)
+            catch (Exception ex)
             {
-                return BadRequest(ModelState);
-            }
-
-            try
-            {
-                await _classRoomRepository.AddAsync(classRoom);
-                return CreatedAtAction("GetClassRoom", new { id = classRoom.ClassRoomId }, classRoom);
-            }
-            catch
-            {
-                return StatusCode(500, "An error occurred while creating the classroom.");
+                await transaction.RollbackAsync();
+                return StatusCode(500, $"Internal server error: {ex.Message}");
             }
         }
 
-        // DELETE: api/ClassRooms/5
         [HttpDelete("DeleteClassRoom/{id}")]
         public async Task<IActionResult> DeleteClassRoom(int id)
         {
-            var classRoom = await _classRoomRepository.GetByIdAsync(id);
-            if (classRoom == null)
-            {
-                return NotFound();
-            }
+            using var transaction = await _context.Database.BeginTransactionAsync();
 
             try
             {
-                await _classRoomRepository.DeleteAsync(classRoom);
+                var classRoom = await _context.ClassRooms
+                    .Include(c => c.ClassRoomCourse_Junction_Tables)
+                    .Include(c => c.Batches)
+                    .FirstOrDefaultAsync(c => c.ClassRoomId == id);
+
+                if (classRoom == null)
+                {
+                    return NotFound();
+                }
+
+                // Check if classroom is used in any batches
+                if (classRoom.Batches != null && classRoom.Batches.Any())
+                {
+                    return BadRequest("Cannot delete classroom as it is assigned to one or more batches");
+                }
+
+                // Remove all junction table entries
+                if (classRoom.ClassRoomCourse_Junction_Tables != null)
+                {
+                    _context.ClassRoomCourse_Junction_Tables.RemoveRange(classRoom.ClassRoomCourse_Junction_Tables);
+                }
+
+                _context.ClassRooms.Remove(classRoom);
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+
                 return NoContent();
             }
-            catch
+            catch (Exception ex)
             {
-                return StatusCode(500, "An error occurred while deleting the classroom.");
+                await transaction.RollbackAsync();
+                return StatusCode(500, $"Internal server error: {ex.Message}");
             }
         }
 
-        // ✅ Get classroom with assigned courses
-        [HttpGet("GetClassRoomWithCourses/{id}")]
-        public async Task<ActionResult<object>> GetClassRoomWithCourses(int id)
+        private bool ClassRoomExists(int id)
         {
-            var classRoom = await _classRoomRepository.GetByIdAsync(id);
-            if (classRoom == null) return NotFound();
-
-            // Load related manually if using repository
-            var assignments = _dbContext.ClassRoomCourse_Junction_Tables
-                .Where(cc => cc.ClassRoomId == id)
-                .Include(cc => cc.Course)
-                .ToList();
-
-            return Ok(new
-            {
-                classRoom.ClassRoomId,
-                classRoom.RoomName,
-                Courses = assignments.Select(cc => new
-                {
-                    cc.CourseId,
-                    cc.Course.CourseName,
-                    cc.IsAvailable
-                }).ToList()
-            });
-        }
-
-        // ✅ Assign courses to a classroom
-        [HttpPost("AssignCoursesToClassRoom")]
-        public async Task<IActionResult> AssignCoursesToClassRoom(int classRoomId, [FromBody] List<int> courseIds)
-        {
-            var classRoom = await _classRoomRepository.GetByIdAsync(classRoomId);
-            if (classRoom == null) return NotFound();
-
-            var existingAssignments = _dbContext.ClassRoomCourse_Junction_Tables
-                .Where(cc => cc.ClassRoomId == classRoomId)
-                .ToList();
-
-            _dbContext.ClassRoomCourse_Junction_Tables.RemoveRange(existingAssignments);
-
-            foreach (var courseId in courseIds)
-            {
-                _dbContext.ClassRoomCourse_Junction_Tables.Add(new ClassRoomCourse_Junction_Table
-                {
-                    ClassRoomId = classRoomId,
-                    CourseId = courseId,
-                    IsAvailable = true
-                });
-            }
-
-            _dbContext.SaveChangesAsync();
-            return Ok("Courses assigned to classroom successfully.");
+            return _context.ClassRooms.Any(e => e.ClassRoomId == id);
         }
     }
 }

@@ -161,5 +161,16 @@ namespace TrainingCenter_Api.Controllers
             return total;
         }
 
+        [HttpGet("byEmployeeAndDateRange")]
+        public async Task<ActionResult<IEnumerable<DailySalesRecord>>> GetByEmployeeAndDateRange(int employeeId, DateTime startDate, DateTime endDate)
+        {
+            return await _context.DailySalesRecords
+                .Include(d => d.Employee)
+                .Where(d => d.EmployeeId == employeeId && d.Date.Date >= startDate.Date && d.Date.Date <= endDate.Date)
+                .OrderBy(d => d.Date)
+                .ToListAsync();
+        }
+
+
     }
 }

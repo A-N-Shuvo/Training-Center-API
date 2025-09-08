@@ -6,26 +6,15 @@ namespace TrainingCenter_Api.Models
 {
     public class Slot
     {
-        //========For Angular==========
-        //[Key]
-        //public int SlotID { get; set; }
-
-        //public string TimeSlotType { get; set; } 
-
-        //public TimeOnly StartTime { get; set; }
-        //public TimeOnly EndTime { get; set; }
-        //public bool IsActive { get; set; }
-
-        //========For React=========
         [Key]
         public int SlotID { get; set; }
 
         public string TimeSlotType { get; set; }
 
-        [NotMapped] // This property won't be mapped to database
+        [NotMapped] 
         public string StartTimeString { get; set; }
 
-        [NotMapped] // This property won't be mapped to database
+        [NotMapped] 
         public string EndTimeString { get; set; }
 
         public TimeOnly StartTime
@@ -42,7 +31,5 @@ namespace TrainingCenter_Api.Models
 
         public bool IsActive { get; set; }
 
-
-        //public virtual ICollection<ClassSchedule>? ClassSchedules { get; set; }
     }
 }

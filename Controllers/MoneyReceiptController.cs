@@ -39,7 +39,6 @@ namespace TrainingCenter_Api.Controllers
             return moneyReceipt;
         }
 
-        // POST: api/MoneyReceipt
         [HttpPost("InsertMoneyReceipt")]
         public async Task<ActionResult<MoneyReceipt>> PostMoneyReceipt([FromBody] MoneyReceipt moneyReceipt)
         {
@@ -51,7 +50,7 @@ namespace TrainingCenter_Api.Controllers
                     return BadRequest(ModelState);
                 }
 
-                // Validate AdmissionId exists
+                // Validate AdmissionId exists if provided
                 if (moneyReceipt.AdmissionId.HasValue &&
                     !await _context.Admissions.AnyAsync(a => a.AdmissionId == moneyReceipt.AdmissionId))
                 {
@@ -59,19 +58,10 @@ namespace TrainingCenter_Api.Controllers
                 }
 
                 // Generate MoneyReceiptNo (MRN-000001 format)
-                var lastReceiptNo = await _context.MoneyReceipts
-                    .OrderByDescending(m => m.MoneyReceiptId)
-                    .Select(m => m.MoneyReceiptNo)
-                    .FirstOrDefaultAsync();
-
-                moneyReceipt.MoneyReceiptNo = GenerateNextReceiptNumber(lastReceiptNo);
+                moneyReceipt.MoneyReceiptNo = GenerateNextReceiptNumber(await GetLastReceiptNo());
                 moneyReceipt.ReceiptDate = DateTime.Now;
 
-                // Validate payment amounts
-                //if (moneyReceipt.PaidAmount > moneyReceipt.PayableAmount)
-                //{
-                //    return BadRequest("Paid amount cannot exceed payable amount");
-                //}
+                // Validate payment amounts for non-registration categories
                 if (moneyReceipt.Category != "Registration Fee")
                 {
                     if (moneyReceipt.PayableAmount <= 0)
@@ -81,30 +71,63 @@ namespace TrainingCenter_Api.Controllers
                         return BadRequest("Paid amount cannot exceed payable amount");
                 }
 
-                if (moneyReceipt.Category == "Registration Fee" &&
-                    moneyReceipt.VisitorId > 0 &&
-                    moneyReceipt.IsInvoiceCreated)
-                {
-                    bool invoiceExists = await _context.MoneyReceipts.AnyAsync(m =>
-                        m.VisitorId == moneyReceipt.VisitorId &&
-                        m.Category == "Registration Fee" &&
-                        m.IsInvoiceCreated);
+                // Check if an invoice already exists for this Visitor
+                var existingInvoice = await _context.MoneyReceipts
+                    .Include(m => m.Invoice)
+                    .Where(m => m.VisitorId == moneyReceipt.VisitorId && m.InvoiceId != null)
+                    .Select(m => m.Invoice)
+                    .FirstOrDefaultAsync();
 
-                    if (invoiceExists)
+                // VALIDATION: Prevent duplicate invoice creation
+                if ((moneyReceipt.IsInvoiceCreated || moneyReceipt.IsFullPayment) && existingInvoice != null)
+                {
+                    return BadRequest("Invoice already exists for this visitor. Cannot create another invoice.");
+                }
+
+                // If invoice exists, add this receipt to it
+                if (existingInvoice != null)
+                {
+                    var receiptNumbers = existingInvoice.MoneyReceiptNo.Split(',')
+                        .Append(moneyReceipt.MoneyReceiptNo)
+                        .Distinct()
+                        .ToArray();
+
+                    existingInvoice.MoneyReceiptNo = string.Join(",", receiptNumbers);
+                    moneyReceipt.InvoiceId = existingInvoice.InvoiceId;
+                }
+                // If no invoice exists and invoice creation is requested
+                else if (moneyReceipt.IsInvoiceCreated || moneyReceipt.IsFullPayment)
+                {
+                    // Get all existing money receipts for this Visitor (if any)
+                    var allReceiptsForVisitor = await _context.MoneyReceipts
+                        .Where(m => m.VisitorId == moneyReceipt.VisitorId)
+                        .ToListAsync();
+
+                    // Generate new invoice
+                    var invoice = new Invoice
                     {
-                        return BadRequest("Invoice already created for this visitor.");
+                        InvoiceNo = GenerateNextInvoiceNumber(await GetLastInvoiceNo()),
+                        InvoiceCategory = moneyReceipt.Category,
+                        MoneyReceiptNo = string.Join(",",
+                            allReceiptsForVisitor.Select(m => m.MoneyReceiptNo)
+                            .Concat(new[] { moneyReceipt.MoneyReceiptNo })
+                            .Distinct()),
+                        CreatingDate = DateTime.Now
+                    };
+
+                    _context.Invoices.Add(invoice);
+                    await _context.SaveChangesAsync();
+
+                    // Update all existing receipts with the new InvoiceId
+                    foreach (var receipt in allReceiptsForVisitor)
+                    {
+                        receipt.InvoiceId = invoice.InvoiceId;
+                        _context.Entry(receipt).State = EntityState.Modified;
                     }
+                    moneyReceipt.InvoiceId = invoice.InvoiceId;
                 }
 
-
-                // Process invoice if needed
-                if (moneyReceipt.IsFullPayment || moneyReceipt.IsInvoiceCreated)
-                {
-                    await ProcessInvoiceCreation(moneyReceipt);
-                }
-
-
-
+                // Save the money receipt
                 _context.MoneyReceipts.Add(moneyReceipt);
                 await _context.SaveChangesAsync();
 
@@ -118,6 +141,23 @@ namespace TrainingCenter_Api.Controllers
             }
         }
 
+        // Helper method to get last receipt number
+        private async Task<string> GetLastReceiptNo()
+        {
+            return await _context.MoneyReceipts
+                .OrderByDescending(m => m.MoneyReceiptId)
+                .Select(m => m.MoneyReceiptNo)
+                .FirstOrDefaultAsync();
+        }
+
+        // Helper method to get last invoice number
+        private async Task<string> GetLastInvoiceNo()
+        {
+            return await _context.Invoices
+                .OrderByDescending(i => i.InvoiceId)
+                .Select(i => i.InvoiceNo)
+                .FirstOrDefaultAsync();
+        }
         private string GenerateNextReceiptNumber(string lastReceiptNo)
         {
             int nextNumber = 1;
@@ -133,19 +173,34 @@ namespace TrainingCenter_Api.Controllers
             return $"MRN-{nextNumber:D6}";
         }
 
+       
+
+
         private async Task ProcessInvoiceCreation(MoneyReceipt moneyReceipt)
         {
-            var allReceiptsForAdmission = await _context.MoneyReceipts
-                .Where(m => m.AdmissionId == moneyReceipt.AdmissionId)
-                .ToListAsync();
+            // 1. Check if any invoice exists for this Visitor (regardless of Category)
+            var existingInvoice = await _context.MoneyReceipts
+                .Include(m => m.Invoice)
+                .Where(m => m.VisitorId == moneyReceipt.VisitorId && m.InvoiceId != null)
+                .Select(m => m.Invoice)
+                .FirstOrDefaultAsync();
 
-            var existingInvoice = allReceiptsForAdmission
-                .FirstOrDefault(m => m.InvoiceId.HasValue)?
-                .Invoice;
-
-            if (existingInvoice == null)
+            // 2. If invoice exists, add the new money receipt to it
+            if (existingInvoice != null)
             {
-                // Create new invoice
+                var receiptNumbers = existingInvoice.MoneyReceiptNo.Split(',')
+                    .Append(moneyReceipt.MoneyReceiptNo)
+                    .Distinct()
+                    .ToArray();
+
+                existingInvoice.MoneyReceiptNo = string.Join(",", receiptNumbers);
+                moneyReceipt.InvoiceId = existingInvoice.InvoiceId;
+                return; // Exit after updating existing invoice
+            }
+
+            // 3. If no invoice exists, create a new one (if requested)
+            if (moneyReceipt.IsInvoiceCreated || moneyReceipt.IsFullPayment)
+            {
                 var lastInvoiceNo = await _context.Invoices
                     .OrderByDescending(i => i.InvoiceId)
                     .Select(i => i.InvoiceNo)
@@ -154,34 +209,14 @@ namespace TrainingCenter_Api.Controllers
                 var invoice = new Invoice
                 {
                     InvoiceNo = GenerateNextInvoiceNumber(lastInvoiceNo),
-                    InvoiceCategory = moneyReceipt.Category,
-                    MoneyReceiptNo = string.Join(",",
-                        allReceiptsForAdmission.Select(m => m.MoneyReceiptNo)
-                        .Concat(new[] { moneyReceipt.MoneyReceiptNo })
-                        .Distinct()),
+                    InvoiceCategory = moneyReceipt.Category, // First payment's category
+                    MoneyReceiptNo = moneyReceipt.MoneyReceiptNo,
                     CreatingDate = DateTime.Now
                 };
 
                 _context.Invoices.Add(invoice);
                 await _context.SaveChangesAsync();
-
-                // Update all receipts with invoice ID
-                foreach (var receipt in allReceiptsForAdmission)
-                {
-                    receipt.InvoiceId = invoice.InvoiceId;
-                }
                 moneyReceipt.InvoiceId = invoice.InvoiceId;
-            }
-            else
-            {
-                // Update existing invoice
-                var receiptNumbers = existingInvoice.MoneyReceiptNo.Split(',')
-                    .Concat(new[] { moneyReceipt.MoneyReceiptNo })
-                    .Distinct()
-                    .ToArray();
-
-                existingInvoice.MoneyReceiptNo = string.Join(",", receiptNumbers);
-                moneyReceipt.InvoiceId = existingInvoice.InvoiceId;
             }
         }
 
@@ -202,73 +237,122 @@ namespace TrainingCenter_Api.Controllers
 
 
 
-        // PUT: api/MoneyReceipt/5
         [HttpPut("UpdateMoneyReceipt/{id}")]
         public async Task<IActionResult> PutMoneyReceipt(int id, MoneyReceipt moneyReceipt)
         {
-            if (id != moneyReceipt.MoneyReceiptId)
+            try
             {
-                return BadRequest();
-            }
-
-            var existingReceipt = await _context.MoneyReceipts.FindAsync(id);
-            if (existingReceipt == null)
-            {
-                return NotFound();
-            }
-
-            // Check if we need to create/update invoice
-            if ((moneyReceipt.IsFullPayment || moneyReceipt.IsInvoiceCreated) && existingReceipt.InvoiceId == null)
-            {
-                var invoice = new Invoice
+                if (id != moneyReceipt.MoneyReceiptId)
                 {
-                    InvoiceCategory = moneyReceipt.Category,
-                    MoneyReceiptNo = moneyReceipt.MoneyReceiptNo,
-                    CreatingDate = DateTime.Now
-                };
+                    return BadRequest("ID mismatch");
+                }
 
-                // Generate InvoiceNo
-                var lastInvoice = await _context.Invoices
-                    .OrderByDescending(i => i.InvoiceId)
-                    .FirstOrDefaultAsync();
+                var existingReceipt = await _context.MoneyReceipts
+                    .Include(m => m.Invoice)
+                    .FirstOrDefaultAsync(m => m.MoneyReceiptId == id);
 
-                int nextInvNumber = 1;
-                if (lastInvoice != null && !string.IsNullOrEmpty(lastInvoice.InvoiceNo))
+                if (existingReceipt == null)
                 {
-                    var lastInvNumber = lastInvoice.InvoiceNo.Split('-')[1];
-                    if (int.TryParse(lastInvNumber, out int invNum))
+                    return NotFound("Money receipt not found");
+                }
+
+                // Save the original MoneyReceiptNo before updating
+                string originalReceiptNo = existingReceipt.MoneyReceiptNo;
+                DateTime originalReceiptDate = existingReceipt.ReceiptDate;
+
+                // Validate model
+                if (!ModelState.IsValid)
+                {
+                    return BadRequest(ModelState);
+                }
+
+                // Validate AdmissionId exists if provided
+                if (moneyReceipt.AdmissionId.HasValue &&
+                    !await _context.Admissions.AnyAsync(a => a.AdmissionId == moneyReceipt.AdmissionId))
+                {
+                    return BadRequest("Invalid AdmissionId");
+                }
+
+                // Validate payment amounts for non-registration categories
+                if (moneyReceipt.Category != "Registration Fee")
+                {
+                    if (moneyReceipt.PayableAmount <= 0)
+                        return BadRequest("Payable amount is required for non-registration categories.");
+
+                    if (moneyReceipt.PaidAmount > moneyReceipt.PayableAmount)
+                        return BadRequest("Paid amount cannot exceed payable amount");
+                }
+
+                // Check if trying to create invoice for existing receipt
+                if ((moneyReceipt.IsInvoiceCreated || moneyReceipt.IsFullPayment) &&
+                    existingReceipt.InvoiceId == null)
+                {
+                    // Check if visitor already has an invoice
+                    var visitorInvoice = await _context.MoneyReceipts
+                        .Include(m => m.Invoice)
+                        .Where(m => m.VisitorId == moneyReceipt.VisitorId &&
+                                   m.MoneyReceiptId != id &&
+                                   m.InvoiceId != null)
+                        .Select(m => m.Invoice)
+                        .FirstOrDefaultAsync();
+
+                    if (visitorInvoice != null)
                     {
-                        nextInvNumber = invNum + 1;
+                        // Add to existing invoice
+                        var receiptNumbers = visitorInvoice.MoneyReceiptNo.Split(',')
+                            .Append(originalReceiptNo)  // Use the original receipt number
+                            .Distinct()
+                            .ToArray();
+
+                        visitorInvoice.MoneyReceiptNo = string.Join(",", receiptNumbers);
+                        existingReceipt.InvoiceId = visitorInvoice.InvoiceId;
+                    }
+                    else
+                    {
+                        // Create new invoice
+                        var invoice = new Invoice
+                        {
+                            InvoiceNo = GenerateNextInvoiceNumber(await GetLastInvoiceNo()),
+                            InvoiceCategory = moneyReceipt.Category,
+                            MoneyReceiptNo = originalReceiptNo,  // Use the original receipt number
+                            CreatingDate = DateTime.Now
+                        };
+
+                        _context.Invoices.Add(invoice);
+                        await _context.SaveChangesAsync();
+                        existingReceipt.InvoiceId = invoice.InvoiceId;
                     }
                 }
 
-                invoice.InvoiceNo = $"INV-{nextInvNumber:D8}";
+                // Update all fields except MoneyReceiptNo and ReceiptDate
+                _context.Entry(existingReceipt).CurrentValues.SetValues(moneyReceipt);
 
-                _context.Invoices.Add(invoice);
-                await _context.SaveChangesAsync();
+                // Restore the original values for these fields
+                existingReceipt.MoneyReceiptNo = originalReceiptNo;
+                existingReceipt.ReceiptDate = originalReceiptDate;
 
-                moneyReceipt.InvoiceId = invoice.InvoiceId;
-            }
-
-            _context.Entry(existingReceipt).CurrentValues.SetValues(moneyReceipt);
-
-            try
-            {
-                await _context.SaveChangesAsync();
-            }
-            catch (DbUpdateConcurrencyException)
-            {
-                if (!MoneyReceiptExists(id))
+                try
                 {
-                    return NotFound();
+                    await _context.SaveChangesAsync();
                 }
-                else
+                catch (DbUpdateConcurrencyException)
                 {
-                    throw;
+                    if (!MoneyReceiptExists(id))
+                    {
+                        return NotFound();
+                    }
+                    else
+                    {
+                        throw;
+                    }
                 }
-            }
 
-            return NoContent();
+                return NoContent();
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"Internal server error: {ex.Message}");
+            }
         }
 
         // DELETE: api/MoneyReceipt/5
@@ -292,18 +376,7 @@ namespace TrainingCenter_Api.Controllers
             return _context.MoneyReceipts.Any(e => e.MoneyReceiptId == id);
         }
 
-        //[HttpGet("invoices-by-admission/{admissionNo}")]
-        //public async Task<IActionResult> GetInvoiceNosByAdmission(string admissionNo)
-        //{
-        //    var invoiceNos = await _context.MoneyReceipts
-        //        .Where(mr => mr.Admission != null && mr.Admission.AdmissionNo == admissionNo && mr.InvoiceId != null && mr.Invoice != null)
-        //        .Select(mr => mr.Invoice.InvoiceNo)
-        //        .Where(no => no != null)
-        //        .Distinct()
-        //        .ToListAsync();
-
-        //    return Ok(invoiceNos);
-        //}
+    
         [HttpGet("invoices-by-admission/{admissionNo}")]
         public async Task<IActionResult> GetInvoiceNosByAdmission(string admissionNo)
         {
@@ -361,35 +434,6 @@ namespace TrainingCenter_Api.Controllers
         }
 
 
-        //[HttpGet("admission-payment-info/{admissionNo}")]
-        //public async Task<IActionResult> GetAdmissionPaymentInfo(string admissionNo)
-        //{
-        //    var admission = await _context.Admissions
-        //        .Include(a => a.AdmissionDetails)
-        //            .ThenInclude(ad => ad.Batch)
-        //                .ThenInclude(b => b.Course)
-        //        .FirstOrDefaultAsync(a => a.AdmissionNo == admissionNo);
-
-        //    if (admission == null)
-        //        return NotFound("Admission not found");
-
-        //    decimal totalAmount = admission.AdmissionDetails
-        //        .Where(ad => ad.Batch != null && ad.Batch.Course != null)
-        //        .Sum(ad => ad.Batch.Course.CourseFee);
-
-        //    decimal totalPaid = await _context.MoneyReceipts
-        //        .Where(m => m.AdmissionId == admission.AdmissionId && m.Category == "Course")
-        //        .SumAsync(m => m.PaidAmount);
-
-        //    return Ok(new
-        //    {
-        //        totalAmount,
-        //        totalPaid,
-        //        payableAmount = totalAmount - totalPaid
-        //    });
-        //}
-
-
         [HttpGet("admission-payment-info/{admissionNo}")]
         public async Task<IActionResult> GetAdmissionPaymentInfo(string admissionNo)
         {
@@ -430,6 +474,49 @@ namespace TrainingCenter_Api.Controllers
                 payableAmount = payableAmount > 0 ? payableAmount : 0
             });
         }
+        
+
+        [HttpGet("visitor-payment-summary/{visitorId}")]
+        public async Task<IActionResult> GetVisitorPaymentSummary(int visitorId)
+        {
+            try
+            {
+                // 1. Calculate total course fees after discounts
+                var admissions = await _context.Admissions
+                    .Include(a => a.AdmissionDetails)
+                        .ThenInclude(ad => ad.Batch)
+                            .ThenInclude(b => b.Course)
+                    .Include(a => a.Offer)
+                    .Where(a => a.VisitorId == visitorId)
+                    .ToListAsync();
+
+                decimal totalAfterDiscounts = admissions.Sum(a => {
+                    decimal rawTotal = a.AdmissionDetails.Sum(ad => ad.Batch?.Course?.CourseFee ?? 0);
+                    decimal afterOffer = a.Offer != null ? rawTotal * (100 - a.Offer.DiscountPercentage) / 100 : rawTotal;
+                    return afterOffer - (a.DiscountAmount ?? 0);
+                });
+
+                // 2. Get ALL payments (both Course and Registration Fee)
+                decimal totalPaid = await _context.MoneyReceipts
+                    .Where(mr => mr.VisitorId == visitorId)
+                    .SumAsync(mr => mr.PaidAmount);
+
+                // 3. Calculate remaining payable
+                decimal remainingPayable = totalAfterDiscounts - totalPaid;
+
+                return Ok(new
+                {
+                    TotalAfterDiscounts = totalAfterDiscounts,
+                    TotalPaid = totalPaid,
+                    RemainingPayable = remainingPayable > 0 ? remainingPayable : 0
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"Internal server error: {ex.Message}");
+            }
+        }    
+
 
 
     }

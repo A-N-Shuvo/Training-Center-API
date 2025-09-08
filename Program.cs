@@ -30,9 +30,10 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowOrigin", policy =>
         policy.WithOrigins("http://localhost:4200", "http://localhost:3000")
-              .AllowAnyHeader()
+              .AllowAnyOrigin()
               .AllowAnyMethod()
-              .AllowAnyOrigin());
+              .AllowAnyHeader()
+              );
 });
 
 //Role based authorization

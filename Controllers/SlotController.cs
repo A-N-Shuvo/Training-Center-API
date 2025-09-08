@@ -14,155 +14,31 @@ namespace TrainingCenter_Api.Controllers
     [ApiController]
     [Produces("application/json")]
     public class SlotController : ControllerBase
-    {
-
-        //==========For Angular========
-        //        private readonly IRepository<Slot> _slotRepository;
-        //        private readonly ApplicationDbContext _context;
-
-        //        public SlotController(IRepository<Slot> slotRepository, ApplicationDbContext context)
-        //        {
-        //            _slotRepository = slotRepository;
-        //            _context = context;
-        //        }
-
-        //        // GET: api/Slot
-        //        [HttpGet("GetSlots")]
-        //        public async Task<ActionResult<IEnumerable<Slot>>> GetAllSlots()
-        //        {
-        //            var slots = await _slotRepository.GetAllAsync();
-        //            return Ok(slots);
-        //        }
+    {            
 
 
-        //        // GET: api/Slot/5
-        //        [HttpGet("GetSlot/{id}")]
-        //        public async Task<ActionResult<Slot>> GetSlot(int id)
-        //        {
-        //            var slot = await _slotRepository.GetByIdAsync(id);
-
-        //            if (slot == null)
-        //            {
-        //                return NotFound();
-        //            }
-
-        //            return Ok(slot);
-        //        }
-
-        //        // POST: api/Slot/InsertSlot
-        //        [HttpPost("InsertSlot")]
-        //        public async Task<ActionResult<Slot>> CreateSlot([FromBody] Slot slot)
-        //        {
-        //            if (!ModelState.IsValid)
-        //                return BadRequest(ModelState);
-
-        //            // Validate time slot
-        //            if (slot.StartTime >= slot.EndTime)
-        //            {
-        //                return BadRequest("End time must be after start time");
-        //            }
-
-        //            // শুধুমাত্র ডুপ্লিকেট চেক (একই টাইপ + একই সময়)
-        //            bool duplicateSlot = await _context.Slots.AnyAsync(s =>
-        //                s.TimeSlotType == slot.TimeSlotType &&
-        //                s.StartTime == slot.StartTime &&
-        //                s.EndTime == slot.EndTime);
-
-        //            if (duplicateSlot)
-        //            {
-        //                return Conflict("A slot with the same type and timing already exists");
-        //            }
-
-        //            try
-        //            {
-        //                await _slotRepository.AddAsync(slot);
-        //                return CreatedAtAction(nameof(GetSlot), new { id = slot.SlotID }, slot);
-        //            }
-        //            catch (Exception ex)
-        //            {
-        //                return StatusCode(500, "An error occurred while creating the slot");
-        //            }
-        //        }
-
-        //        // PUT: api/Slot/UpdateSlot/5
-        //        [HttpPut("UpdateSlot/{id}")]
-        //        public async Task<IActionResult> UpdateSlot(int id, [FromBody] Slot slot)
-        //        {
-        //            if (id != slot.SlotID)
-        //                return BadRequest("ID mismatch");
-
-        //            if (!ModelState.IsValid)
-        //                return BadRequest(ModelState);
-
-        //            // Validate time slot
-        //            if (slot.StartTime >= slot.EndTime)
-        //            {
-        //                return BadRequest("End time must be after start time");
-        //            }
-
-        //            // শুধুমাত্র ডুপ্লিকেট চেক (একই টাইপ + একই সময়)
-        //            bool duplicateSlot = await _context.Slots.AnyAsync(s =>
-        //                s.SlotID != id && // নিজেকে বাদ দিতে
-        //                s.TimeSlotType == slot.TimeSlotType &&
-        //                s.StartTime == slot.StartTime &&
-        //                s.EndTime == slot.EndTime);
-
-        //            if (duplicateSlot)
-        //            {
-        //                return Conflict("A slot with the same type and timing already exists");
-        //            }
-
-        //            try
-        //            {
-        //                await _slotRepository.UpdateAsync(slot);
-        //                return NoContent();
-        //            }
-        //            catch (Exception ex)
-        //            {
-        //                return StatusCode(500, "An error occurred while updating the slot");
-        //            }
-        //        }
-
-        //        // DELETE: api/Slot/5
-        //        [HttpDelete("DeleteSlot/{id}")]
-        //        public async Task<IActionResult> DeleteSlot(int id)
-        //        {
-        //            var slot = await _slotRepository.GetByIdAsync(id);
-        //            if (slot == null)
-        //            {
-        //                return NotFound();
-        //            }
-
-        //            await _slotRepository.DeleteAsync(slot);
-        //            return NoContent();
-        //        }
-        //    }
-        //}
-
-
-        //===========For React===========
-        private readonly IRepository<Slot> _slotRepository;
+        private readonly IRepository<Slot> _slotrepository;
         private readonly ILogger<SlotController> _logger;
 
-        public SlotController(IRepository<Slot> slotRepository)
+        public SlotController(IRepository<Slot> slotrepository)
         {
-            _slotRepository = slotRepository;
+            _slotrepository = slotrepository;
         }
 
 
-        // GET: api/Slot
+        // get: api/slot
         [HttpGet("GetSlots")]
-        public async Task<ActionResult<IEnumerable<Slot>>> GetAllSlots()
+        public async Task<ActionResult<IEnumerable<Slot>>> getallslots()
         {
-            var slots = await _slotRepository.GetAllAsync();
+            var slots = await _slotrepository.GetAllAsync();
             return Ok(slots);
         }
 
-        // GET: api/Slot/5
+        // get: api/slot/5
         [HttpGet("GetSlot/{id}")]
-        public async Task<ActionResult<Slot>> GetSlot(int id)
+        public async Task<ActionResult<Slot>> getslot(int id)
         {
-            var slot = await _slotRepository.GetByIdAsync(id);
+            var slot = await _slotrepository.GetByIdAsync(id);
 
             if (slot == null)
             {
@@ -174,28 +50,28 @@ namespace TrainingCenter_Api.Controllers
 
 
         [HttpPost("InsertSlot")]
-        public async Task<ActionResult<Slot>> CreateSlot(SlotDto slotDto)
+        public async Task<ActionResult<Slot>> createslot(SlotDto slotdto)
         {
             var slot = new Slot
             {
-                TimeSlotType = slotDto.TimeSlotType,
-                StartTime = TimeOnly.Parse(slotDto.StartTime),
-                EndTime = TimeOnly.Parse(slotDto.EndTime),
-                IsActive = slotDto.IsActive
+                TimeSlotType = slotdto.TimeSlotType,
+                StartTime = TimeOnly.Parse(slotdto.StartTime),
+                EndTime = TimeOnly.Parse(slotdto.EndTime),
+                IsActive = slotdto.IsActive
             };
 
-            await _slotRepository.AddAsync(slot);
+            await _slotrepository.AddAsync(slot);
             return CreatedAtAction("GetSlot", new { id = slot.SlotID }, slot);
         }
 
 
-        // Update your UpdateSlot endpoint
+        // update your updateslot endpoint
         [HttpPut("UpdateSlot/{id}")]
-        public async Task<IActionResult> UpdateSlot(int id, [FromBody] SlotDto slotDto)
+        public async Task<IActionResult> updateslot(int id, [FromBody] SlotDto slotdto)
         {
-            if (id != slotDto.SlotID)
+            if (id != slotdto.SlotID)
             {
-                return BadRequest("ID mismatch");
+                return BadRequest("id mismatch");
             }
 
             if (!ModelState.IsValid)
@@ -205,57 +81,57 @@ namespace TrainingCenter_Api.Controllers
 
             try
             {
-                // Parse times
-                if (!TimeOnly.TryParse(slotDto.StartTime, out var startTime) ||
-                    !TimeOnly.TryParse(slotDto.EndTime, out var endTime))
+                // parse times
+                if (!TimeOnly.TryParse(slotdto.StartTime, out var starttime) ||
+                    !TimeOnly.TryParse(slotdto.EndTime, out var endtime))
                 {
-                    return BadRequest("Invalid time format. Use HH:mm");
+                    return BadRequest("invalid time format. use hh:mm");
                 }
 
                 var slot = new Slot
                 {
-                    SlotID = slotDto.SlotID,
-                    TimeSlotType = slotDto.TimeSlotType,
-                    StartTimeString = slotDto.StartTime,
-                    EndTimeString = slotDto.EndTime,
-                    IsActive = slotDto.IsActive
+                    SlotID = slotdto.SlotID,
+                    TimeSlotType = slotdto.TimeSlotType,
+                    StartTimeString = slotdto.StartTime,
+                    EndTimeString = slotdto.EndTime,
+                    IsActive = slotdto.IsActive
                 };
 
-                await _slotRepository.UpdateAsync(slot);
+                await _slotrepository.UpdateAsync(slot);
                 return NoContent();
             }
             catch (Exception ex)
             {
-                return StatusCode(500, "An error occurred while updating the slot");
+                return StatusCode(500, "an error occurred while updating the slot");
             }
         }
 
 
 
         [HttpDelete("DeleteSlot/{id}")]
-        public async Task<IActionResult> DeleteSlot(int id)
+        public async Task<IActionResult> deleteslot(int id)
         {
             try
             {
                 if (id <= 0)
                 {
-                    return BadRequest("Invalid slot ID");
+                    return BadRequest("invalid slot id");
                 }
 
-                var slot = await _slotRepository.GetByIdAsync(id);
+                var slot = await _slotrepository.GetByIdAsync(id);
                 if (slot == null)
                 {
                     return NotFound();
                 }
 
-                await _slotRepository.DeleteAsync(slot);
+                await _slotrepository.DeleteAsync(slot);
                 return NoContent();
             }
             catch (Exception ex)
             {
-                // Log the exception (using your preferred logging method)
-                _logger.LogError(ex, "Error deleting slot with ID {SlotId}", id);
-                return StatusCode(500, "An error occurred while deleting the slot");
+                // log the exception (using your preferred logging method)
+                _logger.LogError(ex, "error deleting slot with id {slotid}", id);
+                return StatusCode(500, "an error occurred while deleting the slot");
             }
         }
     }

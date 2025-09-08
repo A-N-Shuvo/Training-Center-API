@@ -36,11 +36,12 @@ namespace TrainingCenter_Api.Data
         public DbSet<AdmissionDetail> AdmissionDetails { get; set; }
         public DbSet<Trainee> Trainees { get; set; }
         public DbSet<TraineeAttendance> TraineeAttendances { get; set; }
+        public DbSet<TraineeAttendanceDetail> TraineeAttendanceDetails { get; set; }
         public DbSet<RolePermission> RolePermissions { get; set; }
         public DbSet<Invoice> Invoices { get; set; }
         public DbSet<MoneyReceipt> MoneyReceipts { get; set; }
-        public DbSet<VisitorEmployee> VisitorEmployees { get; set; }
-        public DbSet<BatchTransfer> BatchTransfers { get; set; }
+        public DbSet<VisitorTransfer_Junction> visitorTransfer_Junctions { get; set; }
+        public DbSet<BatchTransfer_Junction> batchTransfer_Junctions { get; set; }
         public DbSet<BatchPlanning> BatchPlannings { get; set; }
 
 
@@ -50,15 +51,15 @@ namespace TrainingCenter_Api.Data
         public DbSet<BatchPlanningInstructor> BatchPlanningInstructors { get; set; }
         
 
-        protected override void OnModelCreating(ModelBuilder modelBuilder)
-        {
-            base.OnModelCreating(modelBuilder);
-            modelBuilder.Entity<VisitorEmployee>()
-             .HasKey(ve => new { ve.VisitorId, ve.EmployeeId });
+        //protected override void OnModelCreating(ModelBuilder modelBuilder)
+        //{
+        //    base.OnModelCreating(modelBuilder);
+        //    modelBuilder.Entity<VisitorEmployee>()
+        //     .HasKey(ve => new { ve.VisitorId, ve.EmployeeId });
 
 
-            modelBuilder.Entity<BatchTransfer>()
-        .HasKey(bt => new { bt.TraineeId, bt.BatchId });
-        }
+        //    modelBuilder.Entity<BatchTransfer>()
+        //.HasKey(bt => new { bt.TraineeId, bt.BatchId });
+        //}
     }
 }

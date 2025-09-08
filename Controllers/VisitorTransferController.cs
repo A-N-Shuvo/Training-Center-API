@@ -3,20 +3,111 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
 using TrainingCenter_Api.Data;
+using TrainingCenter_Api.Migrations;
 using TrainingCenter_Api.Models;
 
 namespace TrainingCenter_Api.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
-    public class VisitorEmployeeController : ControllerBase
+    public class VisitorTransferController : ControllerBase
     {
         private readonly ApplicationDbContext _context;
 
-        public VisitorEmployeeController(ApplicationDbContext context)
+        public VisitorTransferController(ApplicationDbContext context)
         {
             _context = context;
         }
+
+        // GET: api/VisitorTransfer
+        [HttpGet("GetVisitorTransfers")]
+        public async Task<IActionResult> GetVisitorTransfers()
+        {
+            var transfers = await _context.visitorTransfer_Junctions
+                .Include(v => v.Visitor)
+                .Include(e => e.Employee)
+                .OrderByDescending(t => t.TransferDate)
+                .Select(t => new
+                {
+                    t.VisitorTransferId,
+                    t.VisitorId,
+                    VisitorName = t.Visitor.VisitorName,
+                    t.EmployeeId,
+                    EmployeeName = t.Employee.EmployeeName,
+                    t.TransferDate,
+                    t.Notes,
+                    t.UserName
+                })
+                .ToListAsync();
+
+            return Ok(transfers);
+        }
+
+
+        // GET: api/VisitorTransfer/{id}
+        [HttpGet("GetVisitorTransfer/{id}")]
+        public async Task<IActionResult> GetVisitorTransfer(int id)
+        {
+            var transfer = await _context.visitorTransfer_Junctions
+                .Include(v => v.Visitor)
+                .Include(e => e.Employee)
+                .Where(t => t.VisitorTransferId == id)
+                .Select(t => new
+                {
+                    t.VisitorTransferId,
+                    t.VisitorId,
+                    VisitorName = t.Visitor.VisitorName,
+                    t.EmployeeId,
+                    EmployeeName = t.Employee.EmployeeName,
+                    t.TransferDate,
+                    t.Notes,
+                    t.UserName
+                })
+                .FirstOrDefaultAsync();
+
+            if (transfer == null)
+                return NotFound();
+
+            return Ok(transfer);
+        }
+
+
+        [HttpGet("ByEmployee/{employeeId}")]
+        public async Task<IActionResult> GetVisitorsByEmployeeId(int employeeId)
+        {
+            var visitors = await _context.Visitors
+                .Where(v => v.EmployeeId == employeeId)
+                .Select(v => new
+                {
+                    v.VisitorId,
+                    v.VisitorName,
+                    v.EmployeeId
+                })
+                .ToListAsync();
+
+            return Ok(visitors);
+        }
+
+        [HttpGet("AssignedVisitorsByEmployee/{employeeId}")]
+        public async Task<IActionResult> GetAssignedVisitorsByEmployeeId(int employeeId)
+        {
+            var assignedVisitors = await _context.visitorTransfer_Junctions
+                .Include(vt => vt.Visitor)
+                .Where(vt => vt.EmployeeId == employeeId)
+                .Select(vt => new
+                {
+                    vt.VisitorTransferId,
+                    vt.Visitor.VisitorNo,
+                    VisitorName = vt.Visitor.VisitorName,
+                    vt.TransferDate,
+                    vt.Notes
+                })
+                .ToListAsync();
+
+            return Ok(assignedVisitors);
+        }
+
+
 
         [HttpPost("assign")]
         public async Task<IActionResult> AssignVisitors([FromBody] JsonElement request)
@@ -91,18 +182,18 @@ namespace TrainingCenter_Api.Controllers
                     var visitorExists = await _context.Visitors.AnyAsync(v => v.VisitorId == visitorId);
                     if (!visitorExists) return NotFound($"Visitor with ID {visitorId} not found.");
 
-                    var assignmentExists = await _context.VisitorEmployees
+                    var assignmentExists = await _context.visitorTransfer_Junctions
                         .AnyAsync(ve => ve.VisitorId == visitorId && ve.EmployeeId == employeeId);
                     if (assignmentExists) return Conflict($"Visitor {visitorId} is already assigned to employee {employeeId}.");
 
-                    await _context.VisitorEmployees.AddAsync(new VisitorEmployee
+                    await _context.visitorTransfer_Junctions.AddAsync(new VisitorTransfer_Junction
                     {
                         VisitorId = visitorId,
                         EmployeeId = employeeId,
                         //CreatedDate = null,
                         TransferDate = transferDate ?? DateTime.Now,
                         Notes = notes,
-                        UserName = userName 
+                        UserName = userName
                     });
                 }
 
@@ -126,5 +217,40 @@ namespace TrainingCenter_Api.Controllers
                 });
             }
         }
+        [HttpDelete("DeleteVisitorTransfer/{id}")]
+        public async Task<IActionResult> DeleteVisitorTransfer(int id)
+        {
+            var visitorTransfer = await _context.visitorTransfer_Junctions.FindAsync(id);
+            if (visitorTransfer == null)
+                return NotFound();
+
+            _context.visitorTransfer_Junctions.Remove(visitorTransfer);
+            await _context.SaveChangesAsync();
+
+            return NoContent();
+        }
+
+        // VisitorAssignmentController.cs
+
+        [HttpGet("GetVisitorAssignments/{visitorId}")]
+        public async Task<IActionResult> GetVisitorAssignments(int visitorId)
+        {
+            var history = await _context.visitorTransfer_Junctions
+                .Where(x => x.VisitorId == visitorId)
+                .Include(x => x.Employee)
+                .OrderByDescending(x => x.TransferDate)
+                .ToListAsync();
+
+            var result = history.Select(h => new
+            {
+                h.TransferDate,
+                h.Notes,
+                h.UserName,
+                EmployeeName = h.Employee.EmployeeName
+            });
+
+            return Ok(result);
+        }
+
     }
 }

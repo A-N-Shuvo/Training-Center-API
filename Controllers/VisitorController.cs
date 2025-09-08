@@ -64,7 +64,7 @@ namespace TrainingCenter_Api.Controllers
             await _visitorRepository.AddAsync(visitor);
 
             // ✅ visitor save করার পর VisitorEmployee এ একটি রেকর্ড insert করুন
-            var visitorEmployee = new VisitorEmployee
+            var visitorTransfer_Junction = new VisitorTransfer_Junction
             {
                 VisitorId = visitor.VisitorId,
                 EmployeeId = visitor.EmployeeId,
@@ -72,7 +72,7 @@ namespace TrainingCenter_Api.Controllers
             };
 
             // আপনি যদি repository pattern ব্যবহার না করেন, তাহলে সরাসরি context ব্যবহার করুন:
-            _context.VisitorEmployees.Add(visitorEmployee);
+            _context.visitorTransfer_Junctions.Add(visitorTransfer_Junction);
             await _context.SaveChangesAsync();
 
             return CreatedAtAction(nameof(GetVisitor), new { id = visitor.VisitorId }, visitor);
@@ -99,38 +99,6 @@ namespace TrainingCenter_Api.Controllers
         }
 
 
-
-        //[HttpPut, Route("UpdateVisitor/{id}")]
-        //public async Task<IActionResult> UpdateVisitor(int id, Visitor visitor)
-        //{
-        //    if (id != visitor.VisitorId)
-        //    {
-        //        return BadRequest();
-        //    }
-
-        //    if (!ModelState.IsValid)
-        //    {
-        //        return BadRequest(ModelState);
-        //    }
-
-        //    try
-        //    {
-        //        await _visitorRepository.UpdateAsync(visitor);
-        //    }
-        //    catch
-        //    {
-        //        if (!await _visitorRepository.ExistsAsync(id))
-        //        {
-        //            return NotFound();
-        //        }
-        //        else
-        //        {
-        //            throw;
-        //        }
-        //    }
-
-        //    return NoContent();
-        //}
 
         [HttpPut, Route("UpdateVisitor/{id}")]
         public async Task<IActionResult> UpdateVisitor(int id, Visitor visitor)
@@ -177,19 +145,7 @@ namespace TrainingCenter_Api.Controllers
 
             return NoContent();
         }
-
-
-        //// DELETE: api/Visitors/5
-        //[HttpDelete("DeleteVisitor/{id}")]
-        //public async Task<IActionResult> DeleteVisitor(int id)
-        //{
-        //    var visitor = await _visitorRepository.GetByIdAsync(id);
-        //    if (visitor == null)
-        //        return NotFound();
-
-        //    await _visitorRepository.DeleteAsync(visitor);
-        //    return NoContent();
-        //}
+               
 
 
         [HttpDelete("DeleteVisitor/{id}")]
@@ -229,9 +185,6 @@ namespace TrainingCenter_Api.Controllers
         }
 
 
-
-
-
         [HttpGet("ByEmployee/{employeeId}")]
         public async Task<ActionResult<IEnumerable<Visitor>>> GetVisitorsByEmployee(int employeeId)
         {
@@ -243,60 +196,5 @@ namespace TrainingCenter_Api.Controllers
 
         
 
-        [HttpGet("GetVisitorWithHistory/{visitorId}")]
-        public async Task<IActionResult> GetVisitorWithHistory(int visitorId)
-        {
-            try
-            {
-                // Get basic visitor info
-                var visitor = await _context.Visitors
-                    .AsNoTracking()
-                    .FirstOrDefaultAsync(v => v.VisitorId == visitorId);
-
-                if (visitor == null)
-                {
-                    return NotFound($"Visitor with ID {visitorId} not found.");
-                }
-
-                // Get all assignments for this visitor
-                var assignments = await _context.VisitorEmployees
-                    .AsNoTracking()
-                    .Where(ve => ve.VisitorId == visitorId)
-                    .Include(ve => ve.Employee)
-                    .OrderByDescending(ve => ve.CreatedDate)
-                    .ToListAsync();
-
-                // Get all unique previous employees (skip current)
-                var previousEmployees = assignments
-                    .Skip(1)
-                    .Select(a => a.Employee?.EmployeeName)
-                    .Where(name => !string.IsNullOrEmpty(name))
-                    .Distinct()
-                    .ToList();
-
-                // Prepare response
-                var response = new
-                {
-                    VisitorId = visitor.VisitorId,
-                    VisitorName = visitor.VisitorName,
-                    ContactNo = visitor.ContactNo,
-                    CurrentEmployee = assignments.FirstOrDefault()?.Employee,
-                    PreviousEmployees = previousEmployees.Any() ?
-                        string.Join(", ", previousEmployees) : "None",
-                    AssignmentHistory = assignments.Select(a => new
-                    {
-                        a.EmployeeId,
-                        EmployeeName = a.Employee?.EmployeeName,
-                        CreatedDate = a.CreatedDate?.ToString("yyyy-MM-dd HH:mm")
-                    })
-                };
-
-                return Ok(response);
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, $"Internal server error: {ex.Message}");
-            }
-        }
     }
 }

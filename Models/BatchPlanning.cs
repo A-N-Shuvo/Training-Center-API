@@ -18,20 +18,16 @@ namespace TrainingCenter_Api.Models
         public virtual CourseCombo? CourseCombo { get; set; }
 
         [Required]
-        [Range(2000, 2100, ErrorMessage = "Year must be between 2000 and 2100")]
         public int Year { get; set; }
 
         [Required]
-        [Range(1, 12, ErrorMessage = "Start month must be between 1 and 12")]
-        public int StartMonth { get; set; }
+        public int StartMonth { get; set; }  //it will happen by dropdown
 
         [Required]
-        [Range(1, 24, ErrorMessage = "Duration must be between 1 and 24 months")]
-        public int DurationMonths { get; set; }
+        public int DurationMonths { get; set; } //2  or 3
 
         [Required]
-        [Range(1, 20, ErrorMessage = "Planned batch count must be between 1 and 20")]
-        public int PlannedBatchCount { get; set; }
+        public int PlannedBatchCount { get; set; } // how many batches for this course or course combo?
 
         public string? Remarks { get; set; }
 

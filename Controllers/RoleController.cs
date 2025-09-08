@@ -232,7 +232,6 @@ namespace TrainingCenter_Api.Controllers
             {
                 "Department",
 
-                // Others modules
             };
             return Ok(modules);
         }
@@ -242,7 +241,7 @@ namespace TrainingCenter_Api.Controllers
         {
             var permissions = new List<string>();
 
-            switch (module)
+            switch (module)  
             {
                 case "Department":
                     permissions = new List<string> { "Create", "Edit", "Delete", "View" };

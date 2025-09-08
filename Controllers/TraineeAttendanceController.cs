@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using TrainingCenter_Api.Data;
 using TrainingCenter_Api.Models;
+using TrainingCenter_Api.Models.ViewModels;
 
 namespace TrainingCenter_Api.Controllers
 {
@@ -11,158 +12,317 @@ namespace TrainingCenter_Api.Controllers
     public class TraineeAttendanceController : ControllerBase
     {
         private readonly ApplicationDbContext _context;
-
-        public TraineeAttendanceController(ApplicationDbContext context)
+        private readonly ILogger<TraineeAttendanceController> _logger;
+        public TraineeAttendanceController(ApplicationDbContext context, ILogger<TraineeAttendanceController> logger)
         {
             _context = context;
+            _logger = logger;
         }
 
-        // GET: api/TraineeAttendance/ByBatch/5?date=2023-05-20
-        [HttpGet("ByBatch/{batchId}")]
-        public async Task<ActionResult<IEnumerable<object>>> GetAttendanceByBatch(int batchId, [FromQuery] DateTime? date)
-        {
-            var queryDate = date ?? DateTime.Today;
 
+        // GET: api/TraineeAttendance
+        [HttpGet("GetTraineeAttendances")]
+        public async Task<ActionResult<IEnumerable<TraineeAttendance>>> GetTraineeAttendances()
+        {
             return await _context.TraineeAttendances
-                .Include(ta => ta.Trainee)
-                    .ThenInclude(t => t.Registration)
+                .Include(ta => ta.Batch)
+                .Include(ta => ta.Instructor)
+                .Include(ta => ta.TraineeAttendanceDetails)
+                    .ThenInclude(tad => tad.Trainee)
+                .ToListAsync();
+        }
+
+        
+        [HttpGet("GetTraineeAttendance/{id}")]
+        public async Task<ActionResult<TraineeAttendance>> GetTraineeAttendance(int id)
+        {
+            var traineeAttendance = await _context.TraineeAttendances
                 .Include(ta => ta.Batch)
                     .ThenInclude(b => b.Instructor)
-                        .ThenInclude(i => i.Employee)
-                .Where(ta => ta.BatchId == batchId && ta.AttendanceDate.Date == queryDate.Date)
-                .Select(ta => new
-                {
-                    ta.TraineeAttendanceId,
-                    ta.Trainee.TraineeIDNo,
-                    TraineeName = ta.Trainee.Registration.TraineeName,
-                    BatchName = ta.Batch.BatchName,
-                    InstructorName = ta.Batch.Instructor.Employee.EmployeeName,
-                    ta.AttendanceDate,
-                    ta.Status,
-                    ta.InvoiceNo,
-                    ta.MarkedTime,
-                    ta.Remarks
-                })
-                .ToListAsync();
-        }
-
-        // POST: api/TraineeAttendance/MarkAttendance
-        [HttpPost("MarkAttendance")]
-        public async Task<ActionResult> MarkAttendance()
-        {
-            var formData = await Request.ReadFormAsync();
-
-            // Parse basic data
-            var batchId = int.Parse(formData["batchId"]);
-            var attendanceDate = DateTime.Parse(formData["attendanceDate"]);
-            var admissionId = int.Parse(formData["admissionId"]);
-            var status = formData["status"];
-            var remarks = formData["remarks"];
-
-            // Get batch with instructor
-            var batch = await _context.Batches
-                .Include(b => b.Instructor)
                     .ThenInclude(i => i.Employee)
-                .FirstOrDefaultAsync(b => b.BatchId == batchId);
-
-            if (batch == null)
-                return BadRequest("ব্যাচ খুঁজে পাওয়া যায়নি");
-
-            // Get all trainee IDs from form
-            var traineeIds = formData["traineeIds"]
-                .ToString()
-                .Split(',')
-                .Select(int.Parse)
-                .ToList();
-
-            // Validate trainees belong to batch
-            var invalidTrainees = await _context.Trainees
-                .Where(t => traineeIds.Contains(t.TraineeId) && t.BatchId != batchId)
-                .AnyAsync();
-
-            if (invalidTrainees)
-                return BadRequest("কিছু ট্রেনি এই ব্যাচে নেই");
-
-            // Check invoice status
-            var invoiceNo = await _context.MoneyReceipts
-                .Where(mr => mr.AdmissionId == admissionId)
-                .Select(mr => mr.Invoice.InvoiceNo)
-                .FirstOrDefaultAsync() ?? "No Invoice";
-
-            // Mark attendance for all trainees
-            foreach (var traineeId in traineeIds)
-            {
-                var attendance = new TraineeAttendance
-                {
-                    TraineeId = traineeId,
-                    BatchId = batchId,
-                    AdmissionId = admissionId,
-                    AttendanceDate = attendanceDate,
-                    Status = status,
-                    InvoiceNo = invoiceNo,
-                    Remarks = remarks
-                };
-
-                _context.TraineeAttendances.Add(attendance);
-            }
-
-            await _context.SaveChangesAsync();
-            return Ok(new
-            {
-                Success = true,
-                Message = "উপস্থিতি সফলভাবে রেকর্ড করা হয়েছে",
-                Instructor = batch.Instructor.Employee.EmployeeName,
-                Batch = batch.BatchName,
-                Date = attendanceDate.ToString("yyyy-MM-dd")
-            });
-        }
-
-        // GET: api/TraineeAttendance/ByInstructor/5?fromDate=2023-05-01&toDate=2023-05-31
-        [HttpGet("ByInstructor/{instructorId}")]
-        public async Task<ActionResult<IEnumerable<object>>> GetAttendanceByInstructor(
-            int instructorId,
-            [FromQuery] DateTime? fromDate,
-            [FromQuery] DateTime? toDate)
-        {
-            var startDate = fromDate ?? DateTime.Today.AddDays(-7);
-            var endDate = toDate ?? DateTime.Today;
-
-            return await _context.TraineeAttendances
-                .Include(ta => ta.Trainee)
+                .Include(ta => ta.TraineeAttendanceDetails)
+                    .ThenInclude(tad => tad.Trainee)
                     .ThenInclude(t => t.Registration)
-                .Include(ta => ta.Batch)
-                .Where(ta => ta.Batch.InstructorId == instructorId &&
-                       ta.AttendanceDate >= startDate &&
-                       ta.AttendanceDate <= endDate)
+                .Include(ta => ta.TraineeAttendanceDetails)
+                    .ThenInclude(tad => tad.Admission)
+                .Include(ta => ta.TraineeAttendanceDetails)
+                    .ThenInclude(tad => tad.Invoice)
                 .Select(ta => new
                 {
                     ta.TraineeAttendanceId,
-                    ta.Trainee.TraineeIDNo,
-                    TraineeName = ta.Trainee.Registration.TraineeName,
-                    ta.Batch.BatchName,
                     ta.AttendanceDate,
-                    ta.Status,
-                    ta.InvoiceNo,
-                    ta.MarkedTime,
-                    ta.Remarks
+                    ta.BatchId,
+                    ta.InstructorId,
+                    Batch = new
+                    {
+                        ta.Batch.BatchId,
+                        ta.Batch.BatchName,
+                        Instructor = new
+                        {
+                            ta.Batch.Instructor.InstructorId,
+                            Employee = new
+                            {
+                                ta.Batch.Instructor.Employee.EmployeeId,
+                                ta.Batch.Instructor.Employee.EmployeeName
+                            }
+                        }
+                    },
+                    Instructor = new
+                    {
+                        ta.Instructor.InstructorId,
+                        Employee = new
+                        {
+                            ta.Instructor.Employee.EmployeeId,
+                            ta.Instructor.Employee.EmployeeName
+                        }
+                    },
+                    TraineeAttendanceDetails = ta.TraineeAttendanceDetails.Select(tad => new
+                    {
+                        tad.TraineeAttendanceDetailId,
+                        tad.TraineeId,
+                        tad.AdmissionId,
+                        tad.InvoiceId,
+                        tad.AttendanceStatus,
+                        tad.MarkedTime,
+                        tad.Remarks,
+                        Trainee = new
+                        {
+                            tad.Trainee.TraineeId,
+                            tad.Trainee.TraineeIDNo,
+                            Registration = tad.Trainee.Registration != null ? new
+                            {
+                                tad.Trainee.Registration.TraineeName
+                            } : null
+                        },
+                        Admission = new
+                        {
+                            tad.Admission.AdmissionNo
+                        },
+                        Invoice = tad.Invoice != null ? new
+                        {
+                            tad.Invoice.InvoiceNo
+                        } : null
+                    })
                 })
-                .ToListAsync();
-        }
+                .FirstOrDefaultAsync(ta => ta.TraineeAttendanceId == id);
 
-        // DELETE: api/TraineeAttendance/5
-        [HttpDelete("{id}")]
-        public async Task<IActionResult> DeleteAttendance(int id)
-        {
-            var attendance = await _context.TraineeAttendances.FindAsync(id);
-            if (attendance == null)
+            if (traineeAttendance == null)
             {
                 return NotFound();
             }
 
-            _context.TraineeAttendances.Remove(attendance);
+            return Ok(traineeAttendance);
+        }
+
+        // POST: api/TraineeAttendance
+        [HttpPost("InsertTraineeAttendance")]
+        public async Task<ActionResult<TraineeAttendance>> PostTraineeAttendance(TraineeAttendance traineeAttendance)
+        {
+            // Set current date if not provided
+            if (traineeAttendance.AttendanceDate == default)
+            {
+                traineeAttendance.AttendanceDate = DateTime.Now;
+            }
+
+            // Process attendance details
+            if (traineeAttendance.TraineeAttendanceDetails != null)
+            {
+                foreach (var detail in traineeAttendance.TraineeAttendanceDetails)
+                {
+                    // Set marked time based on attendance status
+                    detail.MarkedTime = detail.AttendanceStatus ? DateTime.Now.ToString("HH:mm:ss") : null;
+
+                    // Validate required fields
+                    if (detail.TraineeId == 0 || detail.AdmissionId == 0)
+                    {
+                        return BadRequest("TraineeId and AdmissionId are required for each attendance detail");
+                    }
+                }
+            }
+
+            _context.TraineeAttendances.Add(traineeAttendance);
+            await _context.SaveChangesAsync();
+
+            return CreatedAtAction("GetTraineeAttendance", new { id = traineeAttendance.TraineeAttendanceId }, traineeAttendance);
+        }
+
+        
+
+
+        [HttpPut("UpdateTraineeAttendance/{id}")]
+        public async Task<IActionResult> PutTraineeAttendance(int id, TraineeAttendance traineeAttendance)
+        {
+            if (id != traineeAttendance.TraineeAttendanceId)
+            {
+                return BadRequest("ID mismatch");
+            }
+
+            // Get existing attendance with details from database
+            var existingAttendance = await _context.TraineeAttendances
+                .Include(a => a.TraineeAttendanceDetails)
+                .FirstOrDefaultAsync(a => a.TraineeAttendanceId == id);
+
+            if (existingAttendance == null)
+            {
+                return NotFound();
+            }
+
+            // Update root properties
+            existingAttendance.AttendanceDate = traineeAttendance.AttendanceDate;
+            existingAttendance.BatchId = traineeAttendance.BatchId;
+            existingAttendance.InstructorId = traineeAttendance.InstructorId;
+
+            // Process attendance details
+            foreach (var detail in traineeAttendance.TraineeAttendanceDetails)
+            {
+                // Try to find existing detail by ID first
+                var existingDetail = existingAttendance.TraineeAttendanceDetails
+                    .FirstOrDefault(d => d.TraineeAttendanceDetailId == detail.TraineeAttendanceDetailId);
+
+                if (existingDetail != null)
+                {
+                    // Update existing detail
+                    existingDetail.TraineeId = detail.TraineeId;
+                    existingDetail.AdmissionId = detail.AdmissionId;
+                    existingDetail.InvoiceId = detail.InvoiceId;
+                    existingDetail.AttendanceStatus = detail.AttendanceStatus;
+                    existingDetail.Remarks = detail.Remarks;
+
+                    // Handle marked time
+                    if (detail.AttendanceStatus && string.IsNullOrEmpty(existingDetail.MarkedTime))
+                    {
+                        existingDetail.MarkedTime = DateTime.Now.ToString("HH:mm:ss");
+                    }
+                    else if (!detail.AttendanceStatus)
+                    {
+                        existingDetail.MarkedTime = null;
+                    }
+                }
+                else
+                {
+                    // If no existing detail found, try to find by traineeId (for backward compatibility)
+                    existingDetail = existingAttendance.TraineeAttendanceDetails
+                        .FirstOrDefault(d => d.TraineeId == detail.TraineeId);
+
+                    if (existingDetail != null)
+                    {
+                        // Update existing detail
+                        existingDetail.TraineeId = detail.TraineeId;
+                        existingDetail.AdmissionId = detail.AdmissionId;
+                        existingDetail.InvoiceId = detail.InvoiceId;
+                        existingDetail.AttendanceStatus = detail.AttendanceStatus;
+                        existingDetail.Remarks = detail.Remarks;
+
+                        // Handle marked time
+                        if (detail.AttendanceStatus && string.IsNullOrEmpty(existingDetail.MarkedTime))
+                        {
+                            existingDetail.MarkedTime = DateTime.Now.ToString("HH:mm:ss");
+                        }
+                        else if (!detail.AttendanceStatus)
+                        {
+                            existingDetail.MarkedTime = null;
+                        }
+                    }
+                    else
+                    {
+                        // Add new detail if no existing record found
+                        detail.TraineeAttendanceId = id;
+                        _context.TraineeAttendanceDetails.Add(detail);
+                    }
+                }
+            }
+
+            try
+            {
+                await _context.SaveChangesAsync();
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                if (!TraineeAttendanceExists(id))
+                {
+                    return NotFound();
+                }
+                else
+                {
+                    throw;
+                }
+            }
+
+            return NoContent();
+        }
+
+        // DELETE: api/TraineeAttendance/5
+        [HttpDelete("DeleteTraineeAttendance/{id}")]
+        public async Task<IActionResult> DeleteTraineeAttendance(int id)
+        {
+            var traineeAttendance = await _context.TraineeAttendances.FindAsync(id);
+            if (traineeAttendance == null)
+            {
+                return NotFound();
+            }
+
+            _context.TraineeAttendances.Remove(traineeAttendance);
             await _context.SaveChangesAsync();
 
             return NoContent();
         }
+
+        private bool TraineeAttendanceExists(int id)
+        {
+            return _context.TraineeAttendances.Any(e => e.TraineeAttendanceId == id);
+        }
+
+
+
+        [HttpGet("GetBatchDetails/{batchId}")]
+        public async Task<IActionResult> GetBatchDetails(int batchId)
+        {
+            try
+            {
+                var batchDetails = await _context.Batches
+                    .Where(b => b.BatchId == batchId)
+                    .Select(b => new
+                    {
+                        BatchId = b.BatchId,
+                        BatchName = b.BatchName,
+                        InstructorId = b.Instructor.InstructorId,
+                        InstructorName = b.Instructor.Employee.EmployeeName,
+                        Trainees = b.Trainees.Select(t => new
+                        {
+                            TraineeId = t.TraineeId,
+                            TraineeName = t.Registration.TraineeName,
+                            AdmissionId = t.Admission.AdmissionId,
+                            AdmissionNo = t.Admission.AdmissionNo,
+                            InvoiceNos = t.Admission.moneyReceipts
+                                .Where(mr => mr.InvoiceId != null)
+                                .Select(mr => new
+                                {
+                                    InvoiceId = mr.InvoiceId,
+                                    InvoiceNo = mr.Invoice.InvoiceNo
+                                })
+                                .ToList()
+                        }).ToList()
+                    })
+                    .FirstOrDefaultAsync();
+
+                if (batchDetails == null)
+                {
+                    return NotFound();
+                }
+
+                return Ok(batchDetails);
+            }
+            catch (Exception ex)
+            {
+                // Log the full error
+                _logger.LogError(ex, "Error getting batch details");
+                return StatusCode(500, new
+                {
+                    message = "An error occurred while getting batch details",
+                    detailedError = ex.Message
+                });
+            }
+        }
+
     }
 }

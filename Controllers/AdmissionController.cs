@@ -51,97 +51,6 @@ namespace TrainingCenter_Api.Controllers
         }
 
 
-        //[HttpPost("InsertAdmission")]
-        //public async Task<ActionResult<Admission>> PostAdmissionWithDetails([FromBody] Admission admission)
-        //{
-        //    if (!ModelState.IsValid) return BadRequest(ModelState);
-
-        //    using var transaction = await _context.Database.BeginTransactionAsync();
-        //    try
-        //    {
-        //        // 1. Save Admission first
-        //        admission.AdmissionNo = null;
-        //        await _admissionRepository.AddAsync(admission);
-        //        await _context.SaveChangesAsync();
-
-        //        // 2. Generate AdmissionNo
-        //        admission.AdmissionNo = $"ADM-{DateTime.Now.Year}{admission.AdmissionId.ToString().PadLeft(4, '0')}";
-        //        await _admissionRepository.UpdateAsync(admission);
-        //        await _context.SaveChangesAsync();
-
-        //        // 3. Process Trainees - Create a copy of the list to avoid modification during iteration
-        //        var admissionDetailsCopy = admission.AdmissionDetails?.ToList() ?? new List<AdmissionDetail>();
-
-        //        if (admissionDetailsCopy.Any())
-        //        {
-        //            foreach (var detail in admissionDetailsCopy)
-        //            {
-        //                // Save AdmissionDetail
-        //                var newDetail = new AdmissionDetail
-        //                {
-        //                    AdmissionId = admission.AdmissionId,
-        //                    RegistrationId = detail.RegistrationId,
-        //                    BatchId = detail.BatchId
-        //                };
-        //                await _admissionDetailRepository.AddAsync(newDetail);
-        //                await _context.SaveChangesAsync();
-
-        //                // Create/Update Trainee
-        //                var trainee = await _context.Trainees
-        //                    .FirstOrDefaultAsync(t => t.RegistrationId == detail.RegistrationId);
-
-        //                if (trainee == null)
-        //                {
-        //                    // Generate TraineeIDNo
-        //                    var lastNo = await _context.Trainees
-        //                        .OrderByDescending(t => t.TraineeIDNo)
-        //                        .Select(t => t.TraineeIDNo)
-        //                        .FirstOrDefaultAsync();
-
-        //                    var newNo = lastNo == null ? $"{DateTime.Now.Year}00001"
-        //                        : (long.Parse(lastNo) + 1).ToString();
-
-        //                    trainee = new Trainee
-        //                    {
-        //                        TraineeIDNo = newNo,
-        //                        RegistrationId = detail.RegistrationId,
-        //                        BatchId = detail.BatchId,
-        //                        AdmissionId = admission.AdmissionId
-        //                    };
-        //                    await _context.Trainees.AddAsync(trainee);
-        //                }
-        //                else
-        //                {
-        //                    trainee.BatchId = detail.BatchId;
-        //                    trainee.AdmissionId = admission.AdmissionId;
-        //                    _context.Trainees.Update(trainee);
-        //                }
-        //                await _context.SaveChangesAsync();
-        //            }
-        //        }
-
-        //        await transaction.CommitAsync();
-
-        //        // Return the complete admission with details
-        //        var result = await _context.Admissions
-        //            .Include(a => a.AdmissionDetails)
-        //            .FirstOrDefaultAsync(a => a.AdmissionId == admission.AdmissionId);
-
-        //        return CreatedAtAction(nameof(GetAdmissionWithDetails),
-        //            new { id = admission.AdmissionId }, result);
-        //    }
-        //    catch (Exception ex)
-        //    {
-        //        await transaction.RollbackAsync();
-        //        return StatusCode(500, new
-        //        {
-        //            Message = "Admission creation failed",
-        //            Error = ex.Message,
-        //            Details = ex.InnerException?.Message
-        //        });
-        //    }
-        //}
-
 
 
         [HttpPost("InsertAdmission")]
@@ -210,9 +119,34 @@ namespace TrainingCenter_Api.Controllers
                                 AdmissionId = newAdmission.AdmissionId
                             };
                             await _context.Trainees.AddAsync(trainee);
+                            await _context.SaveChangesAsync();
+
+                            // Add to BatchTransfer_Junction for the first time
+                            var batchTransfer = new BatchTransfer_Junction
+                            {
+                                TraineeId = trainee.TraineeId,
+                                BatchId = detail.BatchId,
+                                CreatedDate = DateOnly.FromDateTime(DateTime.Now)
+
+                            };
+                            await _context.batchTransfer_Junctions.AddAsync(batchTransfer);
                         }
                         else
                         {
+                            // If trainee exists, check if batch is being changed
+                            if (trainee.BatchId != detail.BatchId)
+                            {
+                                // Add to BatchTransfer_Junction for batch transfer
+                                var batchTransfer = new BatchTransfer_Junction
+                                {
+                                    TraineeId = trainee.TraineeId,
+                                    BatchId = detail.BatchId,
+                                    CreatedDate = DateOnly.FromDateTime(DateTime.Now),
+                                    TransferDate = DateOnly.FromDateTime(DateTime.Now)
+                                };
+                                await _context.batchTransfer_Junctions.AddAsync(batchTransfer);
+                            }
+
                             trainee.BatchId = detail.BatchId;
                             trainee.AdmissionId = newAdmission.AdmissionId;
                             _context.Trainees.Update(trainee);
@@ -317,9 +251,6 @@ namespace TrainingCenter_Api.Controllers
         }
 
 
-
-
-
         // DELETE: api/Admissions/5 (Delete Admission with Details)
         [HttpDelete("DeleteAdmission/{id}")]
         public async Task<IActionResult> DeleteAdmissionWithDetails(int id)
@@ -353,5 +284,35 @@ namespace TrainingCenter_Api.Controllers
 
             return Ok(list);
         }
+
+        [HttpGet("by-visitor/{visitorId}")]
+        public async Task<ActionResult<IEnumerable<Admission>>> GetAdmissionsByVisitor(int visitorId)
+        {
+            return await _context.Admissions
+                .Where(a => a.VisitorId == visitorId)
+                .Include(a => a.AdmissionDetails)
+                .ThenInclude(ad => ad.Batch)
+                .ThenInclude(b => b.Course)
+                .ToListAsync();
+        }
     }
+
+
+    //[HttpGet("GetAdmissionsByVisitor/{visitorId}")]
+    //    public async Task<ActionResult<IEnumerable<Admission>>> GetAdmissionsByVisitor(int visitorId)
+    //    {
+    //        var admissions = await _context.Admissions
+    //            .Include(a => a.Visitors)
+    //            .Include(a => a.Offer)
+    //            .Include(a => a.AdmissionNo)
+    //            .Where(a => a.VisitorId == visitorId)
+    //            .ToListAsync();
+
+    //        if (admissions == null || !admissions.Any())
+    //        {
+    //            return NotFound();
+    //        }
+
+    //        return admissions;
+    //    }
 }
